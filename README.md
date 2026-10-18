@@ -5,7 +5,8 @@ Nepočítá jen poměr svalovina : kosti : orgány. Počítá skutečný obsah �
 verzovaným standardem (výchozí FEDIAF 2025) a u každého čísla ukáže zdroj a spolehlivost.
 
 > **Stav projektu: Fáze 1 – analýza a odborné základy (dokončena, čeká na odbornou revizi).**
-> Zatím nevznikl žádný aplikační kód.
+> Zatím nevznikl žádný aplikační kód. Existuje jen pomocný nástroj `refdata` pro kontrolu přepisu
+> tabulek standardu (milník M1, viz [Nástroje](#nástroje)).
 
 ## Dokumentace Fáze 1
 
@@ -36,6 +37,24 @@ Datové šablony: [`data/reference/nutrients.csv`](data/reference/nutrients.csv)
 | 🟡 | Ověřit v originále před použitím (sekundární nebo neověřený údaj) |
 | 🛠 | Pracovní návrh (technické nebo produktové rozhodnutí) |
 | 🩺 | Musí posoudit veterinární nutriční specialista před nasazením |
+
+## Nástroje
+
+Balíček [`refdata/`](refdata/) kontroluje dvojí přepis tabulek standardu (čistý Python 3.12+, jen
+standardní knihovna, čísla jako `Decimal`). Postup pro přepisovatele a specialistu:
+[docs/postup-prepisu-standardu.md](docs/postup-prepisu-standardu.md).
+
+```bash
+# kontrola jednoho přepisu (během práce s --allow-empty, před odevzdáním bez něj)
+.venv/bin/python -m refdata validate cesta/prepis.csv [--allow-empty] [--catalog CESTA] [--json]
+
+# porovnání dvou nezávislých přepisů A a B
+.venv/bin/python -m refdata compare cesta/prepis_A.csv cesta/prepis_B.csv [--json]
+```
+
+Návratový kód: `0` bez chyb, `1` alespoň jedna chyba (ERROR), `2` chybné použití nebo nečitelný soubor.
+
+Testy: `.venv/bin/python -m pytest -q`
 
 ## Předávací zpráva Fáze 1
 

@@ -36,6 +36,7 @@
 pet_app/
   nutricalc/               # výpočetní jádro (pip-instalovatelný balíček, vlastní testy)
     units.py  energy.py  composition.py  requirements.py  evaluation.py  rules.py  snapshot.py
+  refdata/                 # kontrola dvojího přepisu tabulek standardů (čistý Python, `python -m refdata`)
   backend/
     config/                # settings, urls
     accounts/  animals/  catalog/  standards/  recipes/  analyses/  audit/  importers/

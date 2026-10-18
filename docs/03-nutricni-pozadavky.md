@@ -162,7 +162,11 @@ automaticky (§3.5).
      tabulka vznikla přepočtem. Odchylky se označí k ručnímu ověření.
    - minimum < nutriční maximum ≤ zákonné maximum, pokud jsou definovány,
    - jednotka odpovídá kanonické jednotce živiny, nebo existuje explicitní převod.
-4. **Revize specialistou:** stav `REVIEWED` → `APPROVED`. Do produkčních výpočtů vstupují jen schválené
+
+   Kontroly z bodů 2 a 3 provádí nástroj `python -m refdata` (balíček `refdata/`, příkazy `validate`
+   a `compare`). Postup pro přepisovatele a specialistu popisuje
+   [postup-prepisu-standardu.md](postup-prepisu-standardu.md).
+4. **Revize specialistou:** stav `DRAFT` → `IN_REVIEW` → `APPROVED` (viz [07](07-django-schema.md) §7.6). Do produkčních výpočtů vstupují jen schválené
    verze (`DataVersion.status = APPROVED`).
 5. **Neměnnost:** schválenou verzi nelze editovat. Oprava = nová verze s poznámkou o změně.
 
