@@ -1,0 +1,4 @@
+standard_code,edition,species,life_stage,reference_energy_k,reference_energy_exponent,basis,nutrient_code,requirement_type,value,unit,condition_note,source_table,source_page,transcriber,transcribed_at,note
+FEDIAF,2025,DOG,ADULT_MAINTENANCE,110,0.75,PER_1000KCAL_ME,CA,MIN_RECOMMENDED,,g,,III-3b,,,,vyplnit z originálu; nepřebírat z docs
+FEDIAF,2025,DOG,ADULT_MAINTENANCE,110,0.75,PER_1000KCAL_ME,CA_P,RATIO_MAX,,ratio,,III-3b,,,,
+FEDIAF,2025,DOG,ADULT_MAINTENANCE_LOW,95,0.75,PER_1000KCAL_ME,CA,MIN_RECOMMENDED,,g,,III-3b,,,,

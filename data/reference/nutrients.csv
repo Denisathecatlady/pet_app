@@ -1,0 +1,53 @@
+code,name_cs,name_en,category,canonical_unit,relevant_dog,relevant_cat,priority_barf,note
+ENERGY_ME,Metabolizovatelná energie,Metabolisable energy,ENERGY,kcal,yes,yes,A,počítá se z makroživin (docs/06 §6.3)
+PROTEIN,Hrubé bílkoviny,Crude protein,MACRO,g,yes,yes,A,
+FAT,Tuk,Crude fat,MACRO,g,yes,yes,A,
+LA,Kyselina linolová,Linoleic acid (C18:2 n-6),FATTY_ACID,g,yes,yes,A,
+ALA,Kyselina alfa-linolenová,alpha-Linolenic acid (C18:3 n-3),FATTY_ACID,g,growth,growth,C,pokrytí podle fází ověřit při importu
+ARA,Kyselina arachidonová,Arachidonic acid (C20:4 n-6),FATTY_ACID,g,no,yes,A,
+EPA_DHA,EPA + DHA,EPA + DHA,FATTY_ACID,g,growth,growth,B,pokrytí podle fází ověřit při importu
+ARG,Arginin,Arginine,AMINO,g,yes,yes,B,
+HIS,Histidin,Histidine,AMINO,g,yes,yes,B,
+ILE,Izoleucin,Isoleucine,AMINO,g,yes,yes,B,
+LEU,Leucin,Leucine,AMINO,g,yes,yes,B,
+LYS,Lysin,Lysine,AMINO,g,yes,yes,B,
+MET,Methionin,Methionine,AMINO,g,yes,yes,B,
+MET_CYS,Methionin + cystin,Methionine + cystine,AMINO,g,yes,yes,B,
+PHE,Fenylalanin,Phenylalanine,AMINO,g,yes,yes,B,
+PHE_TYR,Fenylalanin + tyrosin,Phenylalanine + tyrosine,AMINO,g,yes,yes,B,
+THR,Threonin,Threonine,AMINO,g,yes,yes,B,
+TRP,Tryptofan,Tryptophan,AMINO,g,yes,yes,B,
+VAL,Valin,Valine,AMINO,g,yes,yes,B,
+TAURINE,Taurin,Taurine,AMINO,g,info,yes,A,u koček povinně; FEDIAF rozlišuje vlhké/suché krmivo (ověřit)
+CA,Vápník,Calcium,MINERAL,g,yes,yes,A,
+P,Fosfor,Phosphorus,MINERAL,g,yes,yes,A,
+CA_P,Poměr Ca:P,Ca:P ratio,RATIO,ratio,yes,yes,A,počítá se; ukládá se jen požadavek
+K,Draslík,Potassium,MINERAL,g,yes,yes,B,
+NA,Sodík,Sodium,MINERAL,g,yes,yes,B,
+CL,Chloridy,Chloride,MINERAL,g,yes,yes,B,
+MG,Hořčík,Magnesium,MINERAL,g,yes,yes,B,
+FE,Železo,Iron,TRACE,mg,yes,yes,B,
+CU,Měď,Copper,TRACE,mg,yes,yes,A,
+ZN,Zinek,Zinc,TRACE,mg,yes,yes,A,
+MN,Mangan,Manganese,TRACE,mg,yes,yes,B,
+I,Jód,Iodine,TRACE,mg,yes,yes,A,
+SE,Selen,Selenium,TRACE,ug,yes,yes,B,
+VIT_A,Vitamin A (retinol),Vitamin A (preformed retinol),VITAMIN,ug,yes,yes,A,beta-karoten se nezapočítává
+BETA_CAROTENE,Beta-karoten,beta-Carotene,VITAMIN,ug,info,no,C,
+VIT_D,Vitamin D,Vitamin D (D3 + D2),VITAMIN,ug,yes,yes,A,
+VIT_E,Vitamin E,Vitamin E (alpha-tocopherol equivalents),VITAMIN,mg,yes,yes,A,převod IU podle formy z přílohy standardu
+VIT_K,Vitamin K,Vitamin K,VITAMIN,ug,no,conditional,C,u koček podmíněně (ověřit)
+THIAMINE,Thiamin (B1),Thiamine,VITAMIN,mg,yes,yes,A,
+RIBOFLAVIN,Riboflavin (B2),Riboflavin,VITAMIN,mg,yes,yes,B,
+PANTOTHENIC,Kyselina pantothenová (B5),Pantothenic acid,VITAMIN,mg,yes,yes,B,
+VIT_B6,Pyridoxin (B6),Vitamin B6,VITAMIN,mg,yes,yes,B,
+VIT_B12,Kobalamin (B12),Vitamin B12,VITAMIN,ug,yes,yes,B,
+NIACIN,Niacin (B3),Niacin,VITAMIN,mg,yes,yes,B,
+FOLIC,Kyselina listová,Folic acid,VITAMIN,ug,yes,yes,B,
+BIOTIN,Biotin,Biotin,VITAMIN,ug,info,yes,C,
+CHOLINE,Cholin,Choline,VITAMIN,mg,yes,yes,B,
+WATER,Voda,Moisture,PROXIMATE,g,yes,yes,-,pro převody na sušinu
+ASH,Popel,Ash,PROXIMATE,g,yes,yes,-,pro výpočet BNLV
+CRUDE_FIBRE,Hrubá vláknina,Crude fibre,PROXIMATE,g,yes,yes,-,pro rovnici NRC
+TDF,Celková vláknina,Total dietary fibre,PROXIMATE,g,yes,yes,-,pro rovnici NRC (varianta TDF)
+NFE,Bezdusíkaté látky výtažkové,Nitrogen-free extract,PROXIMATE,g,yes,yes,-,dopočet
