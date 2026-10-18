@@ -1,5 +1,6 @@
 """Načtení přepisu ze šablony importu. Čísla jsou syntetická."""
 
+import unicodedata
 from codecs import BOM_UTF8
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError
@@ -36,6 +37,45 @@ def _codes(findings: list) -> list[str]:
     return [finding.code for finding in findings]
 
 
+def _file(*lines: str, encoding: str = "utf-8") -> bytes:
+    return "".join(f"{line}\n" for line in lines).encode(encoding)
+
+
+# (kód, obsah souboru s nálezem, obsah blízkého souboru bez nálezu)
+LOAD_CASES = [
+    (
+        "E_ENCODING",
+        _file(HEADER_LINE, VALID_LINE.replace("T-1", "Tab. č. 1"), encoding="cp1250"),
+        _file(HEADER_LINE, VALID_LINE.replace("T-1", "Tab. č. 1")),
+    ),
+    (
+        "E_HEADER",
+        _file(HEADER_LINE.replace("species", "Species"), VALID_LINE),
+        _file(HEADER_LINE, VALID_LINE),
+    ),
+    (
+        "E_CSV_SYNTAX",
+        _file(HEADER_LINE, VALID_LINE + '"x"y'),
+        _file(HEADER_LINE, VALID_LINE + "xy"),
+    ),
+    ("E_COLUMN_COUNT", _file(HEADER_LINE, VALID_LINE + ",navic"), _file(HEADER_LINE, VALID_LINE)),
+]
+
+
+@pytest.mark.parametrize(
+    ("code", "positive", "negative"), LOAD_CASES, ids=[c[0] for c in LOAD_CASES]
+)
+def test_file_level_code_positive_and_negative(
+    tmp_path: Path, code: str, positive: bytes, negative: bytes
+) -> None:
+    path = tmp_path / "prepis.csv"
+    path.write_bytes(positive)
+    assert _codes(load_standard_csv(path)[1]) == [code]
+    path.write_bytes(negative)
+    rows, findings = load_standard_csv(path)
+    assert findings == [] and len(rows) == 1
+
+
 def test_expected_header_matches_template(template_path: Path) -> None:
     first_line = template_path.read_text(encoding="utf-8").splitlines()[0]
     assert tuple(first_line.split(",")) == EXPECTED_HEADER
@@ -64,6 +104,23 @@ def test_bom_is_accepted(tmp_path: Path) -> None:
         _write_lines(tmp_path, HEADER_LINE, VALID_LINE, prefix=BOM_UTF8)
     )
     assert findings == [] and len(rows) == 1
+
+
+def test_bom_and_crlf_line_endings_are_accepted(tmp_path: Path) -> None:
+    # tvar exportu „CSV UTF-8“ z tabulkových programů
+    path = tmp_path / "export.csv"
+    lines = [HEADER_LINE, VALID_LINE, VALID_LINE.replace("ZN", "CU"), ""]
+    path.write_bytes(BOM_UTF8 + "\r\n".join(lines).encode("utf-8"))
+    rows, findings = load_standard_csv(path)
+    assert findings == []
+    loaded = [(row.line, row.nutrient_code, row.note) for row in rows]
+    assert loaded == [(2, "ZN", ""), (3, "CU", "")]
+
+
+def test_semicolon_delimited_file_gives_header_error(tmp_path: Path) -> None:
+    path = _write_lines(tmp_path, HEADER_LINE.replace(",", ";"), VALID_LINE.replace(",", ";"))
+    rows, findings = load_standard_csv(path)
+    assert rows == [] and _codes(findings) == ["E_HEADER"]
 
 
 @pytest.mark.parametrize(
@@ -175,6 +232,30 @@ def test_key_normalizes_numbers_and_whitespace(make_row: Callable[..., StandardR
     assert make_row(condition_note="vlhké krmivo").key != plain.key
     # neplatné číslo zůstává v klíči jako text
     assert make_row(reference_energy_k="1l0").key[4] == "1l0"
+
+
+@pytest.mark.parametrize(
+    ("variant", "reference"),
+    [
+        pytest.param("for dry  food", "for dry food", id="dvojita-mezera"),
+        pytest.param("for dry\nfood", "for dry food", id="zalomeni-radku"),
+        pytest.param("for dry \r\n food", "for dry food", id="crlf-uvnitr"),
+        pytest.param("for dry\u00a0food", "for dry food", id="nezlomitelna-mezera"),
+        pytest.param("\ufb01sh-based diets", "fish-based diets", id="ligatura"),
+        pytest.param(unicodedata.normalize("NFD", "suché krmivo"), "suché krmivo", id="nfd"),
+    ],
+)
+def test_key_unifies_pdf_copy_variants_of_text(
+    make_row: Callable[..., StandardRow], variant: str, reference: str
+) -> None:
+    assert make_row(condition_note=variant).key == make_row(condition_note=reference).key
+    assert make_row(condition_note=variant).condition_note == variant.strip()
+
+
+def test_key_keeps_letter_case_and_wording(make_row: Callable[..., StandardRow]) -> None:
+    lower = make_row(condition_note="for dry food")
+    assert make_row(condition_note="For dry food").key != lower.key
+    assert make_row(standard_code="Fediaf").key != make_row(standard_code="FEDIAF").key
 
 
 def test_value_and_unit_are_not_part_of_key(make_row: Callable[..., StandardRow]) -> None:

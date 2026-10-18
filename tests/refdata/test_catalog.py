@@ -1,5 +1,6 @@
 """Načtení katalogu živin."""
 
+import csv
 from codecs import BOM_UTF8
 from pathlib import Path
 
@@ -20,9 +21,11 @@ def _write(tmp_path: Path, *lines: str, prefix: bytes = b"") -> Path:
 
 
 def test_real_catalog_has_52_unique_codes(catalog_path: Path) -> None:
+    with catalog_path.open(encoding="utf-8-sig", newline="") as handle:
+        codes = [cells[0] for cells in list(csv.reader(handle))[1:] if cells]
+    assert len(codes) == 52 and len(set(codes)) == 52
     catalog = load_catalog(catalog_path)
-    assert len(catalog) == 52
-    assert len(set(catalog)) == 52
+    assert list(catalog) == codes
     assert all(entry.canonical_unit in CANONICAL_UNITS for entry in catalog.values())
     assert [code for code, entry in catalog.items() if entry.is_ratio] == ["CA_P"]
     assert catalog["CA"].canonical_unit == "g"

@@ -7,9 +7,10 @@ mají vyplněnou hodnotu, nemají duplicitní klíč a sdílejí jednotku. Toler
 převodů se odvozuje z vytištěné přesnosti (:mod:`refdata.decimal_utils`).
 """
 
+import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, localcontext
 from enum import StrEnum
 
@@ -80,6 +81,8 @@ _SCALED_GROUP = (
     "unit",
 )
 _SCALED_BASES = frozenset({Basis.PER_100G_DM, Basis.PER_1000KCAL_ME, Basis.PER_MJ_ME})
+_CONFIRM_PATTERN = re.compile(rf"(?<!\w){re.escape(CONFIRM_TOKEN)}(?!\w)")
+"""Token jako samostatné slovo (ne např. ``NOT_CONFIRMED_AS_PRINTED``)."""
 
 
 @dataclass(frozen=True)
@@ -120,6 +123,17 @@ _BASIS_CHECKS = (
         "na MJ ME = na 100 g sušiny × 2.5 / 4.184",
     ),
 )
+_RATIO_BASIS_CHECKS = tuple(
+    replace(
+        check,
+        factor=Decimal(1),
+        divisor=Decimal(1),
+        rule=f"{BASIS_LABELS[check.target]} = {BASIS_LABELS[check.source]} "
+        "(poměr na bázi nezávisí)",
+    )
+    for check in _BASIS_CHECKS
+)
+"""Tytéž dvojice bází pro typy RATIO_MIN/RATIO_MAX: hodnoty se musí shodovat."""
 
 
 def validate_rows(
@@ -138,9 +152,9 @@ def validate_rows(
     Kontroly mezi řádky: ``E_MIN_NOT_BELOW_MAX``; převody bází
     ``E_BASIS_DM_1000``, ``E_BASIS_MJ_1000``, ``E_BASIS_DM_MJ`` (``ERROR``,
     nebo ``WARNING``, když poznámky obou řádků obsahují
-    :data:`~refdata.vocab.CONFIRM_TOKEN`; u typů RATIO_MIN/RATIO_MAX se
-    nepoužijí, protože poměr na bázi nezávisí); ``W_SCALED_PAIR`` jen pro
-    požadavky typu minimum.
+    :data:`~refdata.vocab.CONFIRM_TOKEN` jako samostatné slovo; u typů
+    RATIO_MIN/RATIO_MAX s faktorem 1, protože poměr na bázi nezávisí);
+    ``W_SCALED_PAIR`` jen pro požadavky typu minimum u dospělých fází.
 
     Výstup: nálezy seřazené podle prvního řádku a kódu (nezávisle na pořadí
     vstupních řádků). Výjimky nevyhazuje.
@@ -493,9 +507,9 @@ def _min_max_findings(rows: Sequence[StandardRow]) -> list[Finding]:
 
 def _basis_findings(rows: Sequence[StandardRow]) -> list[Finding]:
     findings = []
-    convertible = [row for row in rows if row.requirement_type not in RATIO_TYPES]
-    for key, group in _grouped(convertible, _BASIS_GROUP):
-        for check in _BASIS_CHECKS:
+    for key, group in _grouped(rows, _BASIS_GROUP):
+        is_ratio = group[0].requirement_type in RATIO_TYPES
+        for check in _RATIO_BASIS_CHECKS if is_ratio else _BASIS_CHECKS:
             targets = [row for row in group if row.basis == check.target]
             sources = [row for row in group if row.basis == check.source]
             for target in targets:
@@ -519,7 +533,7 @@ def _basis_finding(
         f"(ř. {source.line}), podle pravidla {check.rule} se očekává ≈ {expected} "
         "(tolerance podle vytištěných desetinných míst). Ověřte obě buňky v originále."
     )
-    confirmed = all(CONFIRM_TOKEN in row.note for row in (target, source))
+    confirmed = all(_CONFIRM_PATTERN.search(row.note) for row in (target, source))
     severity: Severity = WARNING if confirmed else ERROR
     if confirmed:
         message += f" Oba řádky nesou {CONFIRM_TOKEN}: neshodu posoudí specialista při revizi."
@@ -533,8 +547,14 @@ def _basis_finding(
 
 def _scaled_pair_findings(rows: Sequence[StandardRow]) -> list[Finding]:
     findings = []
+    # Dvojice 95/110 a 75/100 jsou sloupce dospělých fází (docs/03 §3.5);
+    # na názvu dospělé fáze nezáleží, páruje se podle k.
     candidates = [
-        row for row in rows if row.requirement_type in MINIMUM_TYPES and row.basis in _SCALED_BASES
+        row
+        for row in rows
+        if row.requirement_type in MINIMUM_TYPES
+        and row.basis in _SCALED_BASES
+        and row.life_stage in ADULT_STAGES
     ]
     for key, group in _grouped(candidates, _SCALED_GROUP):
         k_low, k_high = SCALED_PAIRS[Species(group[0].species)]
@@ -607,13 +627,20 @@ def _pair_lines(first: StandardRow, second: StandardRow) -> tuple[int, ...]:
 def _expected_text(
     source: StandardRow, factor: Decimal, divisor: Decimal, like: StandardRow
 ) -> str:
-    """Hodnota ``source × factor / divisor`` na o jedno místo víc, než má ``like``."""
+    """Hodnota ``source × factor / divisor`` na o jedno místo víc, než má ``like``.
+
+    Pokud by zaokrouhlený výsledek přesáhl přesnost kontextu (velmi rozdílné
+    řády obou hodnot), vrátí se výsledek bez zaokrouhlení na místa ``like``.
+    """
     exponent = _value(like).as_tuple().exponent
     if not isinstance(exponent, int):
         raise ValueError(f"Řádek {like.line} nemá konečnou hodnotu.")
-    with localcontext(DECIMAL_CONTEXT):
+    with localcontext(DECIMAL_CONTEXT) as context:
         expected = _value(source) * factor / divisor
-        return _fmt(expected.quantize(Decimal((0, (1,), exponent - 1))))
+        quantum = Decimal((0, (1,), exponent - 1))
+        if expected.adjusted() - quantum.adjusted() < context.prec - 1:
+            expected = expected.quantize(quantum)
+        return _fmt(expected)
 
 
 def _fmt(value: Decimal) -> str:

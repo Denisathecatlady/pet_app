@@ -164,7 +164,8 @@ automaticky (§3.5).
    - jednotka odpovídá kanonické jednotce živiny, nebo existuje explicitní převod.
 
    Kontroly z bodů 2 a 3 provádí nástroj `python -m refdata` (balíček `refdata/`, příkazy `validate`
-   a `compare`). Postup pro přepisovatele a specialistu popisuje
+   a `compare`). Existenci a správnost převodu jednotky (např. IU) nástroj neověřuje, jen ho vyžádá
+   (`W_NEEDS_CONVERSION`). Ověří ho kurátor a specialista. Postup pro přepisovatele a specialistu popisuje
    [postup-prepisu-standardu.md](postup-prepisu-standardu.md).
 4. **Revize specialistou:** stav `DRAFT` → `IN_REVIEW` → `APPROVED` (viz [07](07-django-schema.md) §7.6). Do produkčních výpočtů vstupují jen schválené
    verze (`DataVersion.status = APPROVED`).

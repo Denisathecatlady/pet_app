@@ -9,6 +9,7 @@ nikdy jako výjimky.
 import csv
 import io
 import re
+import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -104,7 +105,10 @@ class StandardRow:
 
         Vstup: název sloupce z :data:`EXPECTED_HEADER`. Referenční energie a
         exponent s platnou hodnotou se normalizují přes ``Decimal`` (``"110"``
-        i ``"110.0"`` → ``"110"``), ostatní pole se vrací tak, jak jsou.
+        i ``"110.0"`` → ``"110"``). Ostatní pole se sjednotí tak, jak je mění
+        kopírování z PDF: Unicode NFKC (nezlomitelná mezera, ligatury, složená
+        a rozložená diakritika) a každý úsek bílých znaků včetně zalomení řádku
+        se nahradí jednou mezerou. Velikost písmen ani znění se nemění.
         Chyby: ``ValueError`` pro název, který není sloupcem přepisu.
         """
         if field not in EXPECTED_HEADER:
@@ -116,7 +120,7 @@ class StandardRow:
         if parsed is not None:
             return format(parsed.normalize(DECIMAL_CONTEXT), "f")
         text: str = getattr(self, field)
-        return text
+        return " ".join(unicodedata.normalize("NFKC", text).split())
 
     @property
     def key(self) -> Key:

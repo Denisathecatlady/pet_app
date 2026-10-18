@@ -150,6 +150,20 @@ ROW_CASES = [
         False,
     ),
     (
+        "E_UNIT_NOT_CANONICAL",
+        ERROR,
+        {"nutrient_code": "VIT_D", "unit": "mg"},
+        {"nutrient_code": "VIT_D", "unit": "ug"},
+        False,
+    ),
+    (
+        "E_UNIT_NOT_CANONICAL",
+        ERROR,
+        {"nutrient_code": "VIT_B12", "unit": "IU"},
+        {"nutrient_code": "VIT_B12", "unit": "ug"},
+        False,
+    ),
+    (
         "W_NEEDS_CONVERSION",
         WARNING,
         {"nutrient_code": "VIT_D", "unit": "IU"},
@@ -267,6 +281,22 @@ def test_iu_vitamin_is_only_a_warning(
     assert [(f.severity, f.code) for f in findings] == [(WARNING, "W_NEEDS_CONVERSION")]
 
 
+@pytest.mark.parametrize(
+    "cells",
+    [
+        pytest.param({"nutrient_code": "VIT_D", "unit": "mg"}, id="vitamin-d-v-mg"),
+        pytest.param({"nutrient_code": "VIT_A", "unit": "mg"}, id="vitamin-a-v-mg"),
+        pytest.param({"nutrient_code": "VIT_B12", "unit": "IU"}, id="iu-u-jineho-vitaminu"),
+        pytest.param({"nutrient_code": "BETA_CAROTENE", "unit": "IU"}, id="iu-u-beta-karotenu"),
+    ],
+)
+def test_iu_exception_covers_only_iu_for_vitamins_a_d_e(
+    catalog: dict[str, NutrientDef], make_row: Callable[..., StandardRow], cells: dict[str, str]
+) -> None:
+    findings = validate_rows([make_row(**cells)], catalog)
+    assert [(f.severity, f.code) for f in findings] == [(ERROR, "E_UNIT_NOT_CANONICAL")]
+
+
 def test_ratio_and_kcal_problems_are_not_double_reported_as_unit_problems(
     catalog: dict[str, NutrientDef], make_row: Callable[..., StandardRow]
 ) -> None:
@@ -321,7 +351,9 @@ def test_duplicate_key_reports_all_lines(
         make_row(line=7, value="30.0"),
     ]
     findings = validate_rows(rows, catalog)
-    assert [(f.code, f.lines) for f in findings] == [("E_DUPLICATE_KEY", (2, 4, 7))]
+    assert [(f.code, f.severity, f.lines) for f in findings] == [
+        ("E_DUPLICATE_KEY", ERROR, (2, 4, 7))
+    ]
     assert findings[0].key == rows[0].key
 
 
@@ -330,6 +362,30 @@ def test_condition_note_distinguishes_otherwise_equal_keys(
 ) -> None:
     rows = [make_row(condition_note="vlhké krmivo"), make_row(condition_note="suché krmivo")]
     assert validate_rows(rows, catalog) == []
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        pytest.param("for dry  food", id="dvojita-mezera"),
+        pytest.param("for dry\nfood", id="zalomeni-radku"),
+        pytest.param("for dry\u00a0food", id="nezlomitelna-mezera"),
+    ],
+)
+def test_condition_note_copy_variants_are_one_cell(
+    catalog: dict[str, NutrientDef], make_row: Callable[..., StandardRow], variant: str
+) -> None:
+    duplicates = [
+        make_row(line=2, condition_note="for dry food"),
+        make_row(line=3, condition_note=variant, value="20.0"),
+    ]
+    findings = validate_rows(duplicates, catalog)
+    assert [(f.code, f.lines) for f in findings] == [("E_DUPLICATE_KEY", (2, 3))]
+    min_max = [
+        make_row(line=2, condition_note="for dry food", value="5.0"),
+        make_row(line=3, condition_note=variant, requirement_type="NUTRITIONAL_MAX", value="4.0"),
+    ]
+    assert [f.code for f in validate_rows(min_max, catalog)] == ["E_MIN_NOT_BELOW_MAX"]
 
 
 def test_template_validates_only_with_allow_empty(

@@ -1,7 +1,10 @@
 """Příkazová řádka: ``python -m refdata validate`` a ``python -m refdata compare``.
 
 Návratové kódy: 0 = žádná chyba (ERROR), 1 = alespoň jedna chyba,
-2 = chybné použití nebo nečitelný soubor či katalog.
+2 = chybné použití, soubor nelze otevřít (neexistuje, chybí práva) nebo
+katalog živin nelze použít. Problémy s obsahem souboru přepisu, včetně
+kódování (``E_ENCODING``) a hlavičky (``E_HEADER``), jsou nálezy ``ERROR``
+a vedou ke kódu 1.
 """
 
 import argparse

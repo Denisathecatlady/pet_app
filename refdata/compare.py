@@ -27,7 +27,8 @@ def compare_transcriptions(
     vyplněné je také neshoda), ``W_PRECISION_DIFFERS`` (číselně shodné, ale
     jiný počet vytištěných desetinných míst), ``E_UNIT_MISMATCH``,
     ``W_PROVENANCE_DIFFERS`` (jiná tabulka nebo strana),
-    ``E_SAME_TRANSCRIBER`` (oba soubory uvádějí stejné iniciály; dvojí přepis
+    ``E_SAME_TRANSCRIBER`` (oba soubory uvádějí stejné neprázdné iniciály bez
+    ohledu na velikost písmen a interpunkci, ``A.A.`` = ``aa``; dvojí přepis
     musí být nezávislý) a ``E_DUPLICATE_KEY`` (klíč se opakuje v jednom
     souboru; porovná se jeho první výskyt). Výjimky nevyhazuje.
     """
@@ -111,8 +112,8 @@ def _pair_findings(row_a: StandardRow, row_b: StandardRow) -> list[Finding]:
             f"B tabulka „{row_b.source_table}“ strana „{row_b.source_page}“. Ověřte, odkud "
             "hodnota v originále pochází, a sjednoťte údaje.",
         )
-    transcriber = row_a.transcriber.casefold()
-    if transcriber and transcriber == row_b.transcriber.casefold():
+    transcriber = _initials(row_a.transcriber)
+    if transcriber and transcriber == _initials(row_b.transcriber):
         add(
             ERROR,
             "E_SAME_TRANSCRIBER",
@@ -121,6 +122,10 @@ def _pair_findings(row_a: StandardRow, row_b: StandardRow) -> list[Finding]:
             "osobou.",
         )
     return findings
+
+
+def _initials(transcriber: str) -> str:
+    return "".join(char for char in transcriber.casefold() if char.isalnum())
 
 
 def _value_difference(row_a: StandardRow, row_b: StandardRow) -> tuple[Severity, str, str] | None:

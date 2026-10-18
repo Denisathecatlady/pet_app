@@ -5,7 +5,8 @@ příklad Ca 1.25 g / 1000 kcal ME ↔ 0.50 g / 100 g sušiny (docs/03 §3.3).
 """
 
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from decimal import ROUND_DOWN, localcontext
 
 import pytest
 
@@ -18,12 +19,78 @@ from refdata.vocab import CONFIRM_TOKEN
 CAT = {"species": "CAT", "reference_energy_k": "100", "reference_energy_exponent": "0.67"}
 DOG_LOW = {"life_stage": "ADULT_MAINTENANCE_LOW", "reference_energy_k": "95"}
 CAT_LOW = {**CAT, "life_stage": "ADULT_MAINTENANCE_LOW", "reference_energy_k": "75"}
+RATIO = {"nutrient_code": "CA_P", "unit": "ratio"}
 
 RowFactory = Callable[..., StandardRow]
 
 
 def _found(findings: list[Finding], code: str) -> list[Finding]:
     return [finding for finding in findings if finding.code == code]
+
+
+def _errors(findings: list[Finding]) -> list[Finding]:
+    return [finding for finding in findings if finding.severity == ERROR]
+
+
+def _rows(make_row: RowFactory, cells: Sequence[dict[str, str]]) -> list[StandardRow]:
+    return [make_row(**overrides) for overrides in cells]
+
+
+# (kód, závažnost, řádky s nálezem na ř. 2 a 3, blízká varianta bez nálezu)
+CROSS_CASES = [
+    (
+        "E_DUPLICATE_KEY",
+        ERROR,
+        [{}, {"value": "20.0"}],
+        [{}, {"condition_note": "suché krmivo", "value": "20.0"}],
+    ),
+    (
+        "E_MIN_NOT_BELOW_MAX",
+        ERROR,
+        [{"value": "5.0"}, {"requirement_type": "NUTRITIONAL_MAX", "value": "5.0"}],
+        [{"value": "4.9"}, {"requirement_type": "NUTRITIONAL_MAX", "value": "5.0"}],
+    ),
+    (
+        "E_BASIS_DM_1000",
+        ERROR,
+        [{"value": "10.0"}, {"basis": "PER_100G_DM", "value": "4.10"}],
+        [{"value": "10.0"}, {"basis": "PER_100G_DM", "value": "4.00"}],
+    ),
+    (
+        "E_BASIS_MJ_1000",
+        ERROR,
+        [{"value": "8.50"}, {"basis": "PER_MJ_ME", "value": "2.000"}],
+        [{"value": "8.37"}, {"basis": "PER_MJ_ME", "value": "2.000"}],
+    ),
+    (
+        "E_BASIS_DM_MJ",
+        ERROR,
+        [{"basis": "PER_MJ_ME", "value": "2.60"}, {"basis": "PER_100G_DM", "value": "4.184"}],
+        [{"basis": "PER_MJ_ME", "value": "2.50"}, {"basis": "PER_100G_DM", "value": "4.184"}],
+    ),
+    (
+        "W_SCALED_PAIR",
+        WARNING,
+        [{"value": "10.0"}, {**DOG_LOW, "value": "10.0"}],
+        [{"value": "10.0"}, {**DOG_LOW, "value": "11.6"}],
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("code", "severity", "positive", "negative"), CROSS_CASES, ids=[c[0] for c in CROSS_CASES]
+)
+def test_cross_row_code_positive_and_negative(
+    catalog: dict[str, NutrientDef],
+    make_row: RowFactory,
+    code: str,
+    severity: str,
+    positive: list[dict[str, str]],
+    negative: list[dict[str, str]],
+) -> None:
+    findings = validate_rows(_rows(make_row, positive), catalog)
+    assert [(f.code, f.severity, f.lines) for f in findings] == [(code, severity, (2, 3))]
+    assert validate_rows(_rows(make_row, negative), catalog) == []
 
 
 # --- minimum < maximum ---------------------------------------------------------
@@ -36,8 +103,10 @@ def _found(findings: list[Finding], code: str) -> list[Finding]:
         ("MIN_RECOMMENDED", "5.0", "NUTRITIONAL_MAX", "5.0", True),
         ("MIN_RECOMMENDED", "4.0", "NUTRITIONAL_MAX", "5.0", False),
         ("RA", "5.0", "LEGAL_MAX_EU", "5.00", True),
+        ("AI", "5.0", "NUTRITIONAL_MAX", "5.0", True),
         ("AI", "4.9", "LEGAL_MAX_EU", "5.0", False),
         ("MR", "9", "SUL", "8", True),
+        ("MR", "8", "SUL", "8", True),
         ("MR", "7", "SUL", "8", False),
         ("NUTRITIONAL_MAX", "6.0", "LEGAL_MAX_EU", "5.0", True),
         ("NUTRITIONAL_MAX", "5.0", "LEGAL_MAX_EU", "5.0", False),
@@ -58,9 +127,7 @@ def test_min_not_below_max(
         make_row(line=3, requirement_type=high_type, value=high),
     ]
     found = _found(validate_rows(rows, catalog), "E_MIN_NOT_BELOW_MAX")
-    assert bool(found) is expected
-    if expected:
-        assert found[0].severity == ERROR and found[0].lines == (2, 3)
+    assert [(f.severity, f.lines) for f in found] == ([(ERROR, (2, 3))] if expected else [])
 
 
 @pytest.mark.parametrize(
@@ -74,30 +141,78 @@ def test_ratio_min_must_be_below_ratio_max(
     expected: bool,
 ) -> None:
     rows = [
-        make_row(nutrient_code="CA_P", unit="ratio", requirement_type="RATIO_MIN", value=ratio_min),
-        make_row(nutrient_code="CA_P", unit="ratio", requirement_type="RATIO_MAX", value=ratio_max),
+        make_row(line=2, **RATIO, requirement_type="RATIO_MIN", value=ratio_min),
+        make_row(line=3, **RATIO, requirement_type="RATIO_MAX", value=ratio_max),
     ]
-    assert bool(_found(validate_rows(rows, catalog), "E_MIN_NOT_BELOW_MAX")) is expected
+    found = _found(validate_rows(rows, catalog), "E_MIN_NOT_BELOW_MAX")
+    assert [(f.severity, f.lines) for f in found] == ([(ERROR, (2, 3))] if expected else [])
 
 
-@pytest.mark.parametrize(
-    "difference",
-    [
-        pytest.param({"condition_note": "suché krmivo"}, id="jina-podminka"),
-        pytest.param({"basis": "PER_100G_DM"}, id="jina-baze"),
-        pytest.param(DOG_LOW, id="jiny-sloupec-k"),
-        pytest.param({"standard_code": "TESTSTD2"}, id="jiny-standard"),
-        pytest.param({"source_page": ""}, id="radek-s-chybou"),
-    ],
-)
-def test_min_max_only_within_same_profile_and_clean_rows(
+def test_every_minimum_is_compared_with_every_maximum(
+    catalog: dict[str, NutrientDef], make_row: RowFactory
+) -> None:
+    rows = [
+        make_row(line=2, requirement_type="MIN_RECOMMENDED", value="3.0"),
+        make_row(line=3, requirement_type="RA", value="6.0"),
+        make_row(line=4, requirement_type="NUTRITIONAL_MAX", value="5.0"),
+        make_row(line=5, requirement_type="LEGAL_MAX_EU", value="5.5"),
+    ]
+    findings = validate_rows(rows, catalog)
+    assert [(f.code, f.severity, f.lines) for f in findings] == [
+        ("E_MIN_NOT_BELOW_MAX", ERROR, (3, 4)),
+        ("E_MIN_NOT_BELOW_MAX", ERROR, (3, 5)),
+    ]
+
+
+# Každá varianta mění právě jedno pole skupiny a sama o sobě je bez chyby.
+MIN_MAX_GROUP_DIFFERENCES = [
+    pytest.param({"condition_note": "suché krmivo"}, id="jina-podminka"),
+    pytest.param({"basis": "PER_100G_DM"}, id="jina-baze"),
+    pytest.param({"nutrient_code": "CU"}, id="jina-zivina"),
+    pytest.param({"standard_code": "TESTSTD2"}, id="jiny-standard"),
+    pytest.param({"edition": "2"}, id="jine-vydani"),
+    pytest.param({"species": "CAT", "reference_energy_exponent": "0.67"}, id="jiny-druh-stejne-k"),
+    pytest.param({"life_stage": "ADULT_MAINTENANCE_LOW"}, id="jina-faze-stejne-k"),
+    pytest.param({"reference_energy_k": "95"}, id="jine-k-stejna-faze"),
+    pytest.param(DOG_LOW, id="jiny-sloupec-k"),
+]
+
+
+@pytest.mark.parametrize("difference", MIN_MAX_GROUP_DIFFERENCES)
+def test_min_max_only_within_same_group(
     catalog: dict[str, NutrientDef], make_row: RowFactory, difference: dict[str, str]
+) -> None:
+    minimum = make_row(requirement_type="MIN_RECOMMENDED", value="5.0")
+    maximum = {"requirement_type": "NUTRITIONAL_MAX", "value": "4.0"}
+    control = validate_rows([minimum, make_row(**maximum)], catalog)
+    assert _found(control, "E_MIN_NOT_BELOW_MAX")
+    varied = make_row(**maximum, **difference)
+    assert _errors(validate_rows([varied], catalog)) == []
+    assert not _found(validate_rows([minimum, varied], catalog), "E_MIN_NOT_BELOW_MAX")
+
+
+def test_min_max_ignores_rows_with_errors(
+    catalog: dict[str, NutrientDef], make_row: RowFactory
 ) -> None:
     rows = [
         make_row(requirement_type="MIN_RECOMMENDED", value="5.0"),
-        make_row(requirement_type="NUTRITIONAL_MAX", value="4.0", **difference),
+        make_row(requirement_type="NUTRITIONAL_MAX", value="4.0", source_page=""),
     ]
     assert not _found(validate_rows(rows, catalog), "E_MIN_NOT_BELOW_MAX")
+
+
+def test_duplicate_rows_are_left_out_of_cross_row_checks(
+    catalog: dict[str, NutrientDef], make_row: RowFactory
+) -> None:
+    rows = [
+        make_row(line=2, requirement_type="MIN_RECOMMENDED", value="5.0"),
+        make_row(line=3, requirement_type="MIN_RECOMMENDED", value="6.0"),
+        make_row(line=4, requirement_type="NUTRITIONAL_MAX", value="4.0"),
+    ]
+    findings = validate_rows(rows, catalog)
+    assert [(f.code, f.severity, f.lines) for f in findings] == [
+        ("E_DUPLICATE_KEY", ERROR, (2, 3))
+    ]
 
 
 def test_min_max_only_between_rows_with_same_unit(
@@ -180,7 +295,7 @@ def test_basis_consistency_all_three_bases(
     ]
 
 
-def test_basis_consistency_applies_to_maxima_but_not_ratios(
+def test_basis_consistency_applies_to_maxima(
     catalog: dict[str, NutrientDef], make_row: RowFactory
 ) -> None:
     maxima = [
@@ -188,42 +303,89 @@ def test_basis_consistency_applies_to_maxima_but_not_ratios(
         make_row(requirement_type="NUTRITIONAL_MAX", basis="PER_100G_DM", value="10.0"),
     ]
     assert [f.code for f in validate_rows(maxima, catalog)] == ["E_BASIS_DM_1000"]
-    ratios = [
-        make_row(
-            nutrient_code="CA_P",
-            unit="ratio",
-            requirement_type="RATIO_MAX",
-            basis="PER_1000KCAL_ME",
-            value="3",
-        ),
-        make_row(
-            nutrient_code="CA_P",
-            unit="ratio",
-            requirement_type="RATIO_MAX",
-            basis="PER_100G_DM",
-            value="3",
-        ),
-    ]
-    assert validate_rows(ratios, catalog) == []
 
 
-def test_basis_consistency_only_within_same_requirement(
-    catalog: dict[str, NutrientDef], make_row: RowFactory
+@pytest.mark.parametrize(
+    ("requirement_type", "bases", "code"),
+    [
+        ("RATIO_MAX", (("PER_1000KCAL_ME", "3"), ("PER_100G_DM", "3")), None),
+        ("RATIO_MAX", (("PER_1000KCAL_ME", "2.0"), ("PER_100G_DM", "1.2")), "E_BASIS_DM_1000"),
+        # 5.0 = 2.0 × 2.5: faktor 2.5 se na poměr nepoužije
+        ("RATIO_MAX", (("PER_1000KCAL_ME", "5.0"), ("PER_100G_DM", "2.0")), "E_BASIS_DM_1000"),
+        ("RATIO_MIN", (("PER_1000KCAL_ME", "1.5"), ("PER_MJ_ME", "1.50")), None),
+        ("RATIO_MIN", (("PER_1000KCAL_ME", "1.5"), ("PER_MJ_ME", "1.7")), "E_BASIS_MJ_1000"),
+        ("RATIO_MIN", (("PER_MJ_ME", "1.2"), ("PER_100G_DM", "1.4")), "E_BASIS_DM_MJ"),
+    ],
+)
+def test_ratio_basis_consistency_uses_factor_1(
+    catalog: dict[str, NutrientDef],
+    make_row: RowFactory,
+    requirement_type: str,
+    bases: tuple[tuple[str, str], ...],
+    code: str | None,
 ) -> None:
     rows = [
-        make_row(basis="PER_1000KCAL_ME", value="10.0"),
-        make_row(basis="PER_100G_DM", value="9.0", requirement_type="RA"),
+        make_row(**RATIO, requirement_type=requirement_type, basis=basis, value=value)
+        for basis, value in bases
     ]
-    assert validate_rows(rows, catalog) == []
+    findings = validate_rows(rows, catalog)
+    assert [(f.code, f.severity) for f in findings] == ([(code, ERROR)] if code else [])
+    if code:
+        assert "poměr na bázi nezávisí" in findings[0].message
+
+
+# Každá varianta mění právě jedno pole skupiny a sama o sobě je bez chyby.
+BASIS_GROUP_DIFFERENCES = [
+    pytest.param({"nutrient_code": "CU"}, id="jina-zivina"),
+    pytest.param({"requirement_type": "RA"}, id="jiny-typ"),
+    pytest.param({"condition_note": "suché krmivo"}, id="jina-podminka"),
+    pytest.param({"standard_code": "TESTSTD2"}, id="jiny-standard"),
+    pytest.param({"edition": "2"}, id="jine-vydani"),
+    pytest.param({"species": "CAT", "reference_energy_exponent": "0.67"}, id="jiny-druh-stejne-k"),
+    pytest.param({"life_stage": "ADULT_MAINTENANCE_LOW"}, id="jina-faze-stejne-k"),
+    pytest.param({"reference_energy_k": "95"}, id="jine-k-stejna-faze"),
+]
+
+
+@pytest.mark.parametrize("difference", BASIS_GROUP_DIFFERENCES)
+def test_basis_consistency_only_within_same_group(
+    catalog: dict[str, NutrientDef], make_row: RowFactory, difference: dict[str, str]
+) -> None:
+    per_1000 = make_row(basis="PER_1000KCAL_ME", value="10.0")
+    per_dm = {"basis": "PER_100G_DM", "value": "1.0"}
+    control = validate_rows([per_1000, make_row(**per_dm)], catalog)
+    assert [f.code for f in control] == ["E_BASIS_DM_1000"]
+    varied = make_row(**per_dm, **difference)
+    assert _errors(validate_rows([varied], catalog)) == []
+    codes = {f.code for f in validate_rows([per_1000, varied], catalog)}
+    assert not codes & {"E_BASIS_DM_1000", "E_BASIS_MJ_1000", "E_BASIS_DM_MJ"}
+
+
+def test_basis_consistency_only_between_rows_with_same_unit(
+    catalog: dict[str, NutrientDef], make_row: RowFactory
+) -> None:
+    vit_d = {"nutrient_code": "VIT_D", "unit": "ug"}
+    same_unit = [
+        make_row(**vit_d, basis="PER_1000KCAL_ME", value="500"),
+        make_row(**vit_d, basis="PER_100G_DM", value="1.0"),
+    ]
+    assert [f.code for f in validate_rows(same_unit, catalog)] == ["E_BASIS_DM_1000"]
+    in_iu = make_row(nutrient_code="VIT_D", unit="IU", basis="PER_100G_DM", value="1.0")
+    other_unit = [same_unit[0], in_iu]
+    assert [f.code for f in validate_rows(other_unit, catalog)] == ["W_NEEDS_CONVERSION"]
 
 
 @pytest.mark.parametrize(
     ("notes", "severity"),
     [
         ((CONFIRM_TOKEN, f"ověřeno AA, {CONFIRM_TOKEN}"), WARNING),
+        ((f"{CONFIRM_TOKEN} AA 2026-01-31", f"ověřeno: {CONFIRM_TOKEN}."), WARNING),
         ((CONFIRM_TOKEN, ""), ERROR),
         (("", ""), ERROR),
         (("confirmed_as_printed", CONFIRM_TOKEN), ERROR),
+        (("NOT_CONFIRMED_AS_PRINTED", CONFIRM_TOKEN), ERROR),
+        (("UNCONFIRMED_AS_PRINTED - zatím neověřeno", CONFIRM_TOKEN), ERROR),
+        ((f"{CONFIRM_TOKEN}_NE", CONFIRM_TOKEN), ERROR),
     ],
 )
 def test_confirmation_token_downgrades_only_when_on_all_rows(
@@ -235,6 +397,29 @@ def test_confirmation_token_downgrades_only_when_on_all_rows(
     ]
     (finding,) = validate_rows(rows, catalog)
     assert (finding.code, finding.severity) == ("E_BASIS_DM_1000", severity)
+
+
+def test_confirmation_token_does_not_downgrade_other_findings(
+    catalog: dict[str, NutrientDef], make_row: RowFactory
+) -> None:
+    rows = [
+        make_row(requirement_type="MIN_RECOMMENDED", value="5.0", note=CONFIRM_TOKEN),
+        make_row(requirement_type="NUTRITIONAL_MAX", value="4.0", note=CONFIRM_TOKEN),
+    ]
+    findings = validate_rows(rows, catalog)
+    assert [(f.code, f.severity) for f in findings] == [("E_MIN_NOT_BELOW_MAX", ERROR)]
+
+
+@pytest.mark.parametrize("column", ["condition_note", "source_table"])
+def test_confirmation_token_counts_only_in_note(
+    catalog: dict[str, NutrientDef], make_row: RowFactory, column: str
+) -> None:
+    rows = [
+        make_row(basis="PER_1000KCAL_ME", value="10.0", **{column: CONFIRM_TOKEN}),
+        make_row(basis="PER_100G_DM", value="9.0", **{column: CONFIRM_TOKEN}),
+    ]
+    (finding,) = validate_rows(rows, catalog)
+    assert (finding.code, finding.severity) == ("E_BASIS_DM_1000", ERROR)
 
 
 # --- dvojice sloupců s nižší a vyšší referenční energií ----------------------------
@@ -306,6 +491,118 @@ def test_scaled_pair_applies_to_all_energy_bases(
 ) -> None:
     rows = [make_row(basis=basis, value="10.0"), make_row(basis=basis, value="10.0", **DOG_LOW)]
     assert [f.code for f in validate_rows(rows, catalog)] == ["W_SCALED_PAIR"]
+
+
+@pytest.mark.parametrize("requirement_type", ["MIN_RECOMMENDED", "MR", "AI", "RA"])
+def test_scaled_pair_applies_to_all_minimum_types(
+    catalog: dict[str, NutrientDef], make_row: RowFactory, requirement_type: str
+) -> None:
+    rows = [
+        make_row(requirement_type=requirement_type, value="10.0"),
+        make_row(requirement_type=requirement_type, value="10.0", **DOG_LOW),
+    ]
+    assert [f.code for f in validate_rows(rows, catalog)] == ["W_SCALED_PAIR"]
+
+
+@pytest.mark.parametrize(
+    ("high_cells", "low_cells"),
+    [
+        pytest.param({}, {**DOG_LOW, "reference_energy_k": "100"}, id="pes-100-a-110"),
+        pytest.param(
+            {**CAT, "reference_energy_k": "110"},
+            {**CAT_LOW, "reference_energy_k": "95"},
+            id="kocka-s-psi-dvojici",
+        ),
+    ],
+)
+def test_scaled_pair_needs_the_exact_species_pair(
+    catalog: dict[str, NutrientDef],
+    make_row: RowFactory,
+    high_cells: dict[str, str],
+    low_cells: dict[str, str],
+) -> None:
+    rows = [make_row(value="10.0", **high_cells), make_row(value="10.0", **low_cells)]
+    assert validate_rows(rows, catalog) == []
+
+
+def test_scaled_pair_only_pairs_adult_stages(
+    catalog: dict[str, NutrientDef], make_row: RowFactory
+) -> None:
+    adult = [make_row(value="10.0"), make_row(value="11.6", **DOG_LOW)]
+    assert validate_rows(adult, catalog) == []
+    growth_high = make_row(life_stage="EARLY_GROWTH_REPRO", reference_energy_k="110", value="20.0")
+    assert validate_rows([*adult, growth_high], catalog) == []
+    growth_low = make_row(life_stage="LATE_GROWTH", reference_energy_k="95", value="10.0")
+    assert validate_rows([adult[0], growth_low], catalog) == []
+
+
+# Každá varianta mění právě jedno pole skupiny a sama o sobě je bez chyby.
+SCALED_GROUP_DIFFERENCES = [
+    pytest.param({"basis": "PER_100G_DM"}, id="jina-baze"),
+    pytest.param({"requirement_type": "RA"}, id="jiny-typ"),
+    pytest.param({"nutrient_code": "CU"}, id="jina-zivina"),
+    pytest.param({"condition_note": "suché krmivo"}, id="jina-podminka"),
+    pytest.param({"standard_code": "TESTSTD2"}, id="jiny-standard"),
+    pytest.param({"edition": "2"}, id="jine-vydani"),
+]
+
+
+@pytest.mark.parametrize("difference", SCALED_GROUP_DIFFERENCES)
+def test_scaled_pair_only_within_same_group(
+    catalog: dict[str, NutrientDef], make_row: RowFactory, difference: dict[str, str]
+) -> None:
+    high = make_row(value="10.0")
+    low = {**DOG_LOW, "value": "10.0"}
+    assert [f.code for f in validate_rows([high, make_row(**low)], catalog)] == ["W_SCALED_PAIR"]
+    varied = make_row(**low, **difference)
+    assert _errors(validate_rows([varied], catalog)) == []
+    assert not _found(validate_rows([high, varied], catalog), "W_SCALED_PAIR")
+
+
+def test_scaled_pair_only_between_rows_with_same_unit(
+    catalog: dict[str, NutrientDef], make_row: RowFactory
+) -> None:
+    high = make_row(nutrient_code="VIT_D", unit="ug", value="10.0")
+    same_unit = make_row(nutrient_code="VIT_D", unit="ug", value="10.0", **DOG_LOW)
+    other_unit = make_row(nutrient_code="VIT_D", unit="IU", value="10.0", **DOG_LOW)
+    assert [f.code for f in validate_rows([high, same_unit], catalog)] == ["W_SCALED_PAIR"]
+    assert [f.code for f in validate_rows([high, other_unit], catalog)] == ["W_NEEDS_CONVERSION"]
+
+
+# --- velmi rozdílné řády a globální kontext ---------------------------------------
+
+
+def test_very_different_magnitudes_do_not_crash(
+    catalog: dict[str, NutrientDef], make_row: RowFactory
+) -> None:
+    # očekávaná hodnota by na místa cílové hodnoty potřebovala víc než 28 číslic
+    basis = [
+        make_row(value="0.00000000000001"),
+        make_row(basis="PER_100G_DM", value="999999999999999"),
+    ]
+    (finding,) = validate_rows(basis, catalog)
+    assert finding.code == "E_BASIS_DM_1000" and "≈ 2499999999999997.5 " in finding.message
+    scaled = [make_row(value="999999999999999"), make_row(value="0.00000000000001", **DOG_LOW)]
+    assert [f.code for f in validate_rows(scaled, catalog)] == ["W_SCALED_PAIR"]
+
+
+def test_validate_rows_does_not_depend_on_global_decimal_context(
+    catalog: dict[str, NutrientDef], make_row: RowFactory
+) -> None:
+    rows = [
+        *_ca_rows(make_row, "1.25", "0.60"),
+        # 0.4024 × 2.5 = [1.005875; 1.006125] těsně nad [0.995; 1.005]
+        make_row(nutrient_code="CU", basis="PER_1000KCAL_ME", value="1.00"),
+        make_row(nutrient_code="CU", basis="PER_100G_DM", value="0.4024"),
+        make_row(value="10.0"),
+        make_row(value="11.51", **DOG_LOW),  # [11.505; 11.515] × 95 < 9.95 × 110
+    ]
+    expected = validate_rows(rows, catalog)
+    assert [f.code for f in expected] == ["E_BASIS_DM_1000", "E_BASIS_DM_1000", "W_SCALED_PAIR"]
+    with localcontext() as context:
+        context.prec = 2
+        context.rounding = ROUND_DOWN
+        assert validate_rows(rows, catalog) == expected
 
 
 # --- determinismus ----------------------------------------------------------------

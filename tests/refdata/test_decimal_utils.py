@@ -3,11 +3,12 @@
 Čísla jsou syntetická.
 """
 
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal, localcontext
 
 import pytest
 
 from refdata.decimal_utils import (
+    MAX_SIGNIFICANT_DIGITS,
     DecimalParseError,
     consistent_with_factor,
     half_ulp,
@@ -70,6 +71,31 @@ def test_parse_decimal_rejects_everything_else(text: str) -> None:
     assert "desetinnou tečku" in str(excinfo.value)
 
 
+@pytest.mark.parametrize("text", ["1,000", "12,500", "1,000,000", "1,000.5"])
+def test_parse_decimal_explains_english_thousands_separator(text: str) -> None:
+    with pytest.raises(DecimalParseError) as excinfo:
+        parse_decimal(text)
+    message = str(excinfo.value)
+    assert "oddělovačem tisíců" in message and "1,000 → 1000" in message
+    assert "desetinnou tečku" in message
+
+
+def test_decimal_comma_gets_the_general_message() -> None:
+    with pytest.raises(DecimalParseError) as excinfo:
+        parse_decimal("1,25")
+    assert "oddělovačem tisíců" not in str(excinfo.value)
+
+
+def test_parse_decimal_limits_significant_digits() -> None:
+    assert MAX_SIGNIFICANT_DIGITS == 15
+    assert parse_decimal("123456789012345") == D("123456789012345")
+    assert parse_decimal("0.000000000000001") == D("1E-15")  # úvodní nuly nejsou platné číslice
+    assert parse_decimal("000000000000000000001.5") == D("1.5")
+    for text in ("1234567890123456", "1.000000000000000", "100000000000000000000"):
+        with pytest.raises(DecimalParseError, match="platných číslic"):
+            parse_decimal(text)
+
+
 def test_parse_error_is_dedicated_value_error_subclass() -> None:
     assert issubclass(DecimalParseError, ValueError)
     assert DecimalParseError is not ValueError
@@ -99,6 +125,14 @@ def test_half_ulp_rejects_non_finite(value: str) -> None:
 def test_printed_interval() -> None:
     assert printed_interval(D("1.25")) == (D("1.245"), D("1.255"))
     assert printed_interval(D("500")) == (D("499.5"), D("500.5"))
+
+
+def test_interval_bounds_are_never_rounded_silently() -> None:
+    # 29 platných číslic: meze by se v přesnosti 28 slily do jednoho bodu
+    with pytest.raises(ValueError, match="přesně"):
+        printed_interval(D("1.0000000000000000000000000000"))
+    with pytest.raises(ValueError, match="přesně"):
+        scaled_interval(D("1.5"), D("110") / D("95"))  # neukončený podíl jako faktor
 
 
 def test_scaled_interval_and_non_positive_factor() -> None:
@@ -150,3 +184,27 @@ def test_consistent_with_factor_rejects_non_positive_factor_or_divisor() -> None
         consistent_with_factor(D("1"), D("1"), D("0"))
     with pytest.raises(ValueError):
         consistent_with_factor(D("1"), D("1"), D("1"), D("0"))
+
+
+def _context_sensitive_results() -> tuple[object, ...]:
+    return (
+        consistent_with_factor(D("1.00"), D("0.5030"), D("2")),
+        consistent_with_factor(D("1.0"), D("0.53"), D("2")),
+        consistent_with_factor(D("1.0"), D("0.54"), D("2")),
+        consistent_with_factor(D("1.25"), D("0.50"), D("2.5")),
+        consistent_with_factor(D("1.25"), D("0.60"), D("2.5")),
+        consistent_with_factor(D("11.6"), D("10.0"), D("110"), D("95")),
+        consistent_with_factor(D("2.0"), D("14.4"), D("1"), D("7")),
+        printed_interval(D("1.25")),
+        scaled_interval(D("0.50"), D("2.5")),
+    )
+
+
+def test_results_do_not_depend_on_global_decimal_context() -> None:
+    expected = _context_sensitive_results()
+    # [0.995, 1.005] proti [1.0059, 1.0061]: s přesností 2 a ROUND_DOWN by se meze překryly
+    assert expected[:5] == (False, True, False, True, False)
+    with localcontext() as context:
+        context.prec = 2
+        context.rounding = ROUND_DOWN
+        assert _context_sensitive_results() == expected

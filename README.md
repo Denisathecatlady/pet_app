@@ -52,7 +52,8 @@ standardní knihovna, čísla jako `Decimal`). Postup pro přepisovatele a speci
 .venv/bin/python -m refdata compare cesta/prepis_A.csv cesta/prepis_B.csv [--json]
 ```
 
-Návratový kód: `0` bez chyb, `1` alespoň jedna chyba (ERROR), `2` chybné použití nebo nečitelný soubor.
+Návratový kód: `0` bez chyb, `1` alespoň jedna chyba (ERROR, včetně souboru přepisu v jiném kódování
+než UTF-8), `2` chybné použití, soubor nelze otevřít nebo katalog nelze použít.
 
 Testy: `.venv/bin/python -m pytest -q`
 

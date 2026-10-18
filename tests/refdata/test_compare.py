@@ -36,6 +36,7 @@ PAIR_CASES = [
     ("W_PRECISION_DIFFERS", WARNING, {"value": "1.0"}, {"value": "1.00"}, {"value": "1.0"}),
     ("W_PRECISION_DIFFERS", WARNING, {"value": "2"}, {"value": "2.0"}, {"value": "02"}),
     ("E_UNIT_MISMATCH", ERROR, {"unit": "mg"}, {"unit": "ug"}, {"unit": "mg"}),
+    ("E_UNIT_MISMATCH", ERROR, {"unit": "mg"}, {"unit": "MG"}, {"unit": " mg "}),
     (
         "W_PROVENANCE_DIFFERS",
         WARNING,
@@ -64,6 +65,13 @@ PAIR_CASES = [
         {"transcriber": "AA"},
         {"transcriber": ""},
     ),
+    (
+        "E_SAME_TRANSCRIBER",
+        ERROR,
+        {"transcriber": "A.A."},
+        {"transcriber": "a a"},
+        {"transcriber": "A.B."},
+    ),
 ]
 
 
@@ -85,6 +93,52 @@ def test_pair_code_positive_and_negative(
     assert findings[0].lines == (2, 5)
     assert "soubor A ř. 2" in findings[0].message and "soubor B ř. 5" in findings[0].message
     assert compare_transcriptions(*_pair(make_row, a, b_negative)) == []
+
+
+def _rows(make_row: RowFactory, cells: list[dict[str, str]], **common: str) -> list[StandardRow]:
+    return [make_row(**{**common, **overrides}) for overrides in cells]
+
+
+# (kód, řádky A, řádky B s nálezem, řádky B bez nálezu); B přepisuje „BB“
+KEY_CASES = [
+    ("E_ONLY_IN_A", [{}, {"nutrient_code": "CU"}], [{}], [{}, {"nutrient_code": "CU"}]),
+    ("E_ONLY_IN_B", [{}], [{}, {"nutrient_code": "MN"}], [{}]),
+    ("E_DUPLICATE_KEY", [{}], [{}, {"value": "99.0"}], [{}]),
+]
+
+
+@pytest.mark.parametrize(
+    ("code", "a", "b_positive", "b_negative"), KEY_CASES, ids=[c[0] for c in KEY_CASES]
+)
+def test_key_code_positive_and_negative(
+    make_row: RowFactory,
+    code: str,
+    a: list[dict[str, str]],
+    b_positive: list[dict[str, str]],
+    b_negative: list[dict[str, str]],
+) -> None:
+    rows_a = _rows(make_row, a)
+    findings = compare_transcriptions(rows_a, _rows(make_row, b_positive, transcriber="BB"))
+    assert [(f.code, f.severity) for f in findings] == [(code, ERROR)]
+    assert compare_transcriptions(rows_a, _rows(make_row, b_negative, transcriber="BB")) == []
+
+
+def test_same_transcriber_is_reported_together_with_value_mismatch(make_row: RowFactory) -> None:
+    rows = _pair(make_row, {"value": "10.0"}, {"value": "10.5", "transcriber": "AA"})
+    findings = compare_transcriptions(*rows)
+    assert [(f.code, f.severity) for f in findings] == [
+        ("E_SAME_TRANSCRIBER", ERROR),
+        ("E_VALUE_MISMATCH", ERROR),
+    ]
+
+
+def test_condition_note_copy_variants_are_paired(make_row: RowFactory) -> None:
+    rows_a = [make_row(condition_note="for dry food")]
+    rows_b = [make_row(condition_note="for dry\u00a0 food\n", transcriber="BB")]
+    assert compare_transcriptions(rows_a, rows_b) == []
+    rows_b = [make_row(condition_note="For dry food", transcriber="BB")]
+    codes = [f.code for f in compare_transcriptions(rows_a, rows_b)]
+    assert codes == ["E_ONLY_IN_A", "E_ONLY_IN_B"]
 
 
 def test_precision_difference_is_not_a_value_mismatch(make_row: RowFactory) -> None:
@@ -125,8 +179,16 @@ def test_duplicate_key_inside_one_file_is_reported(make_row: RowFactory) -> None
     rows_a = [make_row(line=2), make_row(line=6, value="99.0")]
     rows_b = [make_row(line=2, transcriber="BB")]
     findings = compare_transcriptions(rows_a, rows_b)
-    assert [(f.code, f.lines) for f in findings] == [("E_DUPLICATE_KEY", (2, 6))]
+    assert [(f.code, f.severity, f.lines) for f in findings] == [("E_DUPLICATE_KEY", ERROR, (2, 6))]
     assert findings[0].message.startswith("Soubor A:")
+
+
+def test_duplicate_key_in_file_b_is_reported(make_row: RowFactory) -> None:
+    rows_a = [make_row(line=2)]
+    rows_b = [make_row(line=3, transcriber="BB"), make_row(line=8, value="99.0", transcriber="BB")]
+    findings = compare_transcriptions(rows_a, rows_b)
+    assert [(f.code, f.severity, f.lines) for f in findings] == [("E_DUPLICATE_KEY", ERROR, (3, 8))]
+    assert findings[0].message.startswith("Soubor B:")
 
 
 def test_compare_is_independent_of_row_order(make_row: RowFactory) -> None:

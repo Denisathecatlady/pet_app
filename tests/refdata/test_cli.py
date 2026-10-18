@@ -70,6 +70,25 @@ def test_validate_header_error_exits_1(
     assert _json_codes(capsys.readouterr().out) == ["E_HEADER"]
 
 
+def test_non_utf8_transcription_is_a_data_error_exit_1(
+    write_csv: WriteCsv, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_csv([{"note": "poznámka é"}])
+    path.write_bytes(path.read_text(encoding="utf-8").encode("latin-1"))
+    assert main(["validate", str(path), "--json"]) == 1
+    assert _json_codes(capsys.readouterr().out) == ["E_ENCODING"]
+
+
+def test_number_with_too_many_digits_is_a_finding_not_a_crash(
+    write_csv: WriteCsv, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_csv(
+        [{"value": "1.0000000001"}, {"basis": "PER_100G_DM", "value": "100000000000000000000"}]
+    )
+    assert main(["validate", str(path), "--json"]) == 1
+    assert _json_codes(capsys.readouterr().out) == ["E_PARSE_DECIMAL"]
+
+
 def test_validate_json_output(write_csv: WriteCsv, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["validate", str(write_csv([{"source_page": ""}])), "--json"]) == 1
     payload = json.loads(capsys.readouterr().out)
@@ -175,13 +194,29 @@ def test_compare_includes_parse_findings_of_both_files(
     assert "E_VALUE_MISMATCH" in {f["code"] for f in findings}
 
 
+# (kód, soubor A s nálezem, soubor A bez nálezu); soubor B je vždy platný
+COMPARE_SKIP_CASES = [
+    ("I_COMPARE_SKIPPED", {"header": ("species", "value")}, {}),
+]
+
+
+@pytest.mark.parametrize(
+    ("code", "broken_a", "fine_a"), COMPARE_SKIP_CASES, ids=[c[0] for c in COMPARE_SKIP_CASES]
+)
 def test_compare_skips_comparison_when_file_cannot_be_read_completely(
-    write_csv: WriteCsv, capsys: pytest.CaptureFixture[str]
+    write_csv: WriteCsv,
+    capsys: pytest.CaptureFixture[str],
+    code: str,
+    broken_a: dict[str, tuple[str, ...]],
+    fine_a: dict[str, tuple[str, ...]],
 ) -> None:
-    path_a = write_csv([{}], name="a.csv", header=("species", "value"))
-    path_b = write_csv([{"transcriber": "BB"}], name="b.csv")
-    assert main(["compare", str(path_a), str(path_b), "--json"]) == 1
-    assert _json_codes(capsys.readouterr().out) == ["I_COMPARE_SKIPPED", "E_HEADER"]
+    path_b = str(write_csv([{"transcriber": "BB"}], name="b.csv"))
+    path_a = str(write_csv([{}], name="a.csv", **broken_a))
+    assert main(["compare", path_a, path_b, "--json"]) == 1
+    assert _json_codes(capsys.readouterr().out) == [code, "E_HEADER"]
+    path_a = str(write_csv([{}], name="a.csv", **fine_a))
+    assert main(["compare", path_a, path_b, "--json"]) == 0
+    assert _json_codes(capsys.readouterr().out) == []
 
 
 def test_compare_missing_file_exits_2(write_csv: WriteCsv, tmp_path: Path) -> None:

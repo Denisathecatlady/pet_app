@@ -46,7 +46,11 @@ class RequirementType(StrEnum):
 
 
 class Basis(StrEnum):
-    """Báze vyjádření požadavku (docs/06 §6.2)."""
+    """Báze vyjádření požadavku.
+
+    FEDIAF uvádí hodnoty na 100 g sušiny, na 1 000 kcal ME a na MJ ME
+    (docs/02 §2.1); báze na kg metabolické hmotnosti viz docs/06 §6.2.
+    """
 
     PER_100G_DM = "PER_100G_DM"
     PER_1000KCAL_ME = "PER_1000KCAL_ME"
@@ -139,7 +143,7 @@ RATIO_CATEGORY: Final = "RATIO"
 """Kategorie katalogu pro poměrové živiny (např. ``CA_P``)."""
 
 # FEDIAF předpokládá energetickou hustotu 4 000 kcal ME/kg sušiny
-# (docs/03 §3.3 a §3.5, docs/02 §2.1; [FEDIAF2025] přes sekundární zdroj).
+# (docs/03 §3.3 a §3.5, stav ✅ S: [FEDIAF2025] přes sekundární zdroj).
 KCAL_PER_KG_DM: Final = Decimal("4000")
 
 # 1 kcal = 4,184 kJ (termochemická kalorie; docs/03 §3.5, docs/11 §11.2).
@@ -173,6 +177,7 @@ SCALED_PAIRS: Final = MappingProxyType(
 # převezme z přílohy standardu jako ověřený záznam (docs/06 §6.2).
 IU_ALLOWED_NUTRIENTS: Final = frozenset({"VIT_A", "VIT_D", "VIT_E"})
 
-# Text v poznámce (note), kterým přepisovatel potvrzuje, že nekonzistentní
-# hodnoty jsou v originále vytištěny přesně takto (docs/postup-prepisu-standardu.md).
+# Slovo v poznámce (note), kterým přepisovatel potvrzuje, že nekonzistentní
+# hodnoty jsou v originále vytištěny přesně takto. Platí jen jako samostatné
+# slovo, ne jako část delšího (docs/postup-prepisu-standardu.md §8).
 CONFIRM_TOKEN: Final = "CONFIRMED_AS_PRINTED"
