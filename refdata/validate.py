@@ -149,7 +149,12 @@ def validate_rows(
     ``I_NOT_FILLED`` a jeho prázdný původ ani datum nejsou chybou; řádek
     s hodnotou musí mít úplný původ vždy).
 
-    Kontroly mezi řádky: ``E_MIN_NOT_BELOW_MAX``; převody bází
+    Kontroly mezi řádky: ``E_MIN_NOT_BELOW_MAX`` (``ERROR``: požadavek typu
+    minimum není menší než některé maximum ``NUTRITIONAL_MAX``, ``SUL`` nebo
+    ``LEGAL_MAX_EU``, nebo ``RATIO_MIN`` není menší než ``RATIO_MAX``);
+    ``W_NUTRITIONAL_ABOVE_LEGAL`` (``WARNING``: nutriční maximum je větší než
+    zákonné maximum EU; neobvyklé, ale možné, protože zákonný limit pro
+    komerční krmiva může být nižší než nutriční maximum); převody bází
     ``E_BASIS_DM_1000``, ``E_BASIS_MJ_1000``, ``E_BASIS_DM_MJ`` (``ERROR``,
     nebo ``WARNING``, když poznámky obou řádků obsahují
     :data:`~refdata.vocab.CONFIRM_TOKEN` jako samostatné slovo; u typů
@@ -475,33 +480,47 @@ def _min_max_findings(rows: Sequence[StandardRow]) -> list[Finding]:
         minima = [row for row in group if row.requirement_type in MINIMUM_TYPES]
         maxima = [row for row in group if row.requirement_type in MAXIMUM_TYPES]
         pairs = [
-            *((low, high, "menší než") for low in minima for high in maxima if not _lt(low, high)),
+            *((low, high) for low in minima for high in maxima if not _lt(low, high)),
             *(
-                (low, high, "nejvýše rovno")
-                for low in by_type[RequirementType.NUTRITIONAL_MAX]
-                for high in by_type[RequirementType.LEGAL_MAX_EU]
-                if not _le(low, high)
-            ),
-            *(
-                (low, high, "menší než")
+                (low, high)
                 for low in by_type[RequirementType.RATIO_MIN]
                 for high in by_type[RequirementType.RATIO_MAX]
                 if not _lt(low, high)
             ),
         ]
-        for low, high, relation in pairs:
+        for low, high in pairs:
             findings.append(
                 Finding(
                     ERROR,
                     "E_MIN_NOT_BELOW_MAX",
                     f"{low.requirement_type} {low.value} {low.unit} (ř. {low.line}) musí být "
-                    f"{relation} {high.requirement_type} {high.value} {high.unit} "
+                    f"menší než {high.requirement_type} {high.value} {high.unit} "
                     f"(ř. {high.line}) pro {low.nutrient_code} {BASIS_LABELS[Basis(low.basis)]}. "
                     "Ověřte obě buňky v originále (záměna řádku, sloupce nebo typu požadavku).",
                     _pair_lines(low, high),
                     key,
                 )
             )
+        # Vztah nutričního a zákonného maxima není pevné pravidlo: zákonné
+        # maximum EU pro komerční krmiva může být nižší než nutriční maximum.
+        for nutritional in by_type[RequirementType.NUTRITIONAL_MAX]:
+            for legal in by_type[RequirementType.LEGAL_MAX_EU]:
+                if not _lt(legal, nutritional):
+                    continue
+                findings.append(
+                    Finding(
+                        WARNING,
+                        "W_NUTRITIONAL_ABOVE_LEGAL",
+                        f"NUTRITIONAL_MAX {nutritional.value} {nutritional.unit} "
+                        f"(ř. {nutritional.line}) je větší než LEGAL_MAX_EU {legal.value} "
+                        f"{legal.unit} (ř. {legal.line}) pro {nutritional.nutrient_code} "
+                        f"{BASIS_LABELS[Basis(nutritional.basis)]}. Je to neobvyklé, ale "
+                        "možné (zákonný limit pro komerční krmiva může být nižší než nutriční "
+                        "maximum). Ověřte obě buňky v originále a výsledek zapište do poznámky.",
+                        _pair_lines(nutritional, legal),
+                        key,
+                    )
+                )
     return findings
 
 
@@ -608,10 +627,6 @@ def _grouped(
 
 def _lt(low: StandardRow, high: StandardRow) -> bool:
     return _value(low) < _value(high)
-
-
-def _le(low: StandardRow, high: StandardRow) -> bool:
-    return _value(low) <= _value(high)
 
 
 def _value(row: StandardRow) -> Decimal:

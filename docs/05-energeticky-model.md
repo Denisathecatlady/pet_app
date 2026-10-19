@@ -79,10 +79,14 @@ $$MER = k \cdot BW^{n}$$
 ### Kastrace, kondice a individuální variabilita 🛠
 - **Kastrace:** aplikace **nepoužívá** paušální násobitel (žádný konkrétní faktor nebyl v této fázi
   ověřen). Kastrace posune výchozí kategorii k nižšímu koeficientu (např. 95 místo 110 u psa,
-  75 místo 100 u kočky) a zobrazí upozornění. 🩺 Pravidlo musí schválit specialista.
-- **BCS:** výpočet probíhá z **aktuální** hmotnosti. Je-li BCS mimo pásmo 4–5/9, aplikace výpočet
-  dávky pro hubnutí nebo přibírání **nenabízí automaticky** (stav *vyžaduje odborné posouzení*, viz
-  [09-rizika.md](09-rizika.md)). Devítibodová škála BCS: `[Laflamme1997d]`, `[Laflamme1997c]` ✅ B.
+  75 místo 100 u kočky) a zobrazí upozornění. Výpočetní jádro koeficient samo nemění: kategorii
+  zvolí aplikační vrstva podle schváleného pravidla a jádro přidá informační upozornění
+  `NEUTERED_FACTOR_CHOICE`. 🩺 Pravidlo musí schválit specialista.
+- **BCS:** výpočet probíhá z **aktuální** hmotnosti (bezpečnostní brána v [09-rizika.md](09-rizika.md)
+  §9.2). BCS 4–5/9: bez omezení. BCS 3/9 a 6–9/9: stav *vyžaduje odborné posouzení*; energie se
+  spočítá, ale dávku pro hubnutí nebo přibírání aplikace **nenabízí automaticky**. BCS 1–2/9:
+  *automatický výpočet nelze doporučit* (bez čísel). Nezadané BCS: informační upozornění.
+  Devítibodová škála BCS: `[Laflamme1997d]`, `[Laflamme1997c]` ✅ B.
 - **Cílová hmotnost** se ukládá jako *orientační údaj* se stavem `UNVERIFIED` / `VET_CONFIRMED`.
   Do výpočtu vstupuje jen ve stavu `VET_CONFIRMED`.
 
@@ -149,21 +153,44 @@ Hodnoty spočítalo jádro v Pythonu s `Decimal` (přesnost 28). V testech se po
 
 ## 5.9 Vstupy, výstupy, chyby (rozhraní funkce) 🛠
 
+Implementace: `nutricalc.energy` (čisté jádro, `Decimal`, docs/07 §7.1).
+
 ```text
-estimate_energy(species, body_weight_kg, life_stage, activity, neutered, bcs,
-                expected_adult_weight_kg=None, energy_factor_set: DataVersion) -> EnergyEstimate
+estimate_energy(inp: EnergyInput) -> EnergyEstimate
+
+EnergyInput (neměnný, jen pojmenované argumenty):
+  species, body_weight_kg: Decimal (aktuální hmotnost),
+  physiological_state: MAINTENANCE | GROWTH | GESTATION | LACTATION,
+  bcs: int 1–9 | None, neutered: bool, factor: EnergyFactor
+
+EnergyFactor (data se zdrojem, ne konstanta v kódu):
+  species, situation_code, k, exponent, k_low?, k_high?, source_key, data_version
 
 EnergyEstimate:
-  kcal_point: Decimal, kcal_low: Decimal, kcal_high: Decimal
-  method_code: str            # např. "FEDIAF2025_MER_DOG"
-  factor: EnergyFactor (k, n, source)
-  rer_kcal: Decimal           # informativně
-  flags: [Flag]               # EXPERT_REQUIRED, BLOCKED, INFO…
-  inputs_hash: str, data_version: str, engine_version: str
+  status: OK | EXPERT_REQUIRED | BLOCKED
+  kcal_point, kcal_low, kcal_high: Decimal | None   # MER = k · BW^n; meze z k_low/k_high, jinak = bod;
+                                                    # None při BLOCKED
+  rer_kcal: Decimal | None                          # informativně; None při BLOCKED
+  factor: EnergyFactor (k, n, zdroj, verze dat)
+  flags: [Flag(level, code, message_cs, subject)]   # vždy INFO ENERGY_IS_ESTIMATE
+  engine_version: str
+  (hash vstupů a verze dat ukládá analýza, docs/07 §7.2)
 
-Chyby:
-  InvalidInput        – BW ≤ 0, BW mimo věrohodný rozsah druhu, BCS mimo 1–9
-  SpeciesMismatch     – koeficient pro jiný druh
-  UnsupportedState    – růst / březost / laktace v MVP → výsledek BLOCKED (nikoli výjimka pro UI)
-  MissingFactor       – pro kombinaci druh × fáze × aktivita chybí schválený koeficient
+Chyby (výjimky):
+  InvalidInputError     – BW ≤ 0, BW mimo technický rozsah věrohodnosti druhu (pes 0,5–120 kg,
+                          kočka 0,5–15 kg; jen kontrola překlepu, ne nutriční data, 🩺 potvrdí
+                          specialista), BCS mimo 1–9
+  SpeciesMismatchError  – koeficient pro jiný druh nebo exponent neodpovídá druhu
+
+Stavy (součást výsledku, ne výjimky):
+  růst / březost / laktace → BLOCKED, ENERGY_STATE_NOT_SUPPORTED (bez čísel)
+  BCS 1–2 → BLOCKED, BCS_SEVERE (bez čísel)
+  BCS 3 a 6–9 → EXPERT_REQUIRED, BCS_OUT_OF_RANGE (čísla se spočítají)
+  BCS chybí → INFO BCS_MISSING; kastrace → INFO NEUTERED_FACTOR_CHOICE (žádný násobitel)
+
+Chybějící schválený koeficient pro kombinaci druh × fáze × aktivita řeší aplikační vrstva před
+voláním jádra (jádro dostává vždy konkrétní EnergyFactor).
 ```
+
+Rovnice pro růst (§5.4) jsou v jádře jako `nrc_puppy_me_kcal` a `nrc_kitten_me_kcal` (kontrolní
+příklady §5.8). `estimate_energy` je v MVP nepoužívá.

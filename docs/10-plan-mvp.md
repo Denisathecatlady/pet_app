@@ -22,6 +22,11 @@ Každá další funkce stojí na jádře, kterému už lze věřit.
 | **M6 – Kočky (MVP-1)** | Profil FEDIAF pro dospělé kočky, taurin, ARA, pravidla pro kočky, rovnice ME pro kočky po ověření | Rozšíření | Validace dávek pro kočky specialistou | 2–3 týdny |
 | **M7 – Fáze 5** | Optimalizace (LP), porovnání standardů (NRC, AAFCO), růst v odborném režimu | | Validace, testy neřešitelnosti | 4–6 týdnů |
 
+> **Stav M2 🛠:** jádro `nutricalc` je implementované v rozsahu MVP-0 (units, energy, composition, me,
+> requirements, evaluation, rules, gate, snapshot, analysis) a pokryté testy na **syntetických** datech
+> (`SYN_*`, `TESTSTD`, golden příklady docs/05 §5.8 a docs/06 §6.10). Čeká na schválená data M1
+> a na odbornou validaci M3 🩺.
+
 Celkem do uzavřené bety (M1–M5): zhruba **12–17 týdnů** práce plus čas na revize specialisty. Největší
 nejistota je v datech (M1) a v dostupnosti specialisty (M3), ne v programování.
 

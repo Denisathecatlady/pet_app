@@ -32,8 +32,10 @@
 | Potravní alergie | 🩺 Vyžaduje posouzení | Eliminační dieta je diagnostický postup. Aplikace umí jen filtrovat alergeny |
 | Růst (štěně, kotě) | ⛔ v MVP, 🩺 později | Rovnice a limity Ca; vysoké riziko chyby |
 | Březost, laktace | ⛔ | Neověřené rovnice a vysoké nároky |
-| BCS ≤ 3/9 nebo ≥ 7/9 | 🩺 Vyžaduje posouzení | Hubnutí nebo přibírání potřebuje plán a kontrolu |
-| BCS 1–2/9, rychlý úbytek hmotnosti | ⛔ | Může jít o onemocnění. Riziko refeeding syndromu 🟡 |
+| BCS 4–5/9 | Bez omezení | Pásmo, pro které je odhad energie z aktuální hmotnosti určen |
+| BCS 3/9 nebo 6–9/9 | 🩺 Vyžaduje posouzení. Energie se spočítá z aktuální hmotnosti, dávku pro hubnutí nebo přibírání aplikace nenabízí | Hubnutí nebo přibírání potřebuje plán a kontrolu |
+| BCS 1–2/9, rychlý úbytek hmotnosti | ⛔ (bez čísel) | Může jít o onemocnění. Riziko refeeding syndromu 🟡 |
+| BCS nezadané | Informace (výpočet běží s upozorněním) | Bez BCS nelze posoudit, zda je aktuální hmotnost vhodná |
 | Senior se svalovou ztrátou (MCS) | 🩺 | `[WSAVA2011]` ✅ |
 | Užívání léků ovlivňujících výživu | 🩺 | Interakce posoudí veterinář |
 

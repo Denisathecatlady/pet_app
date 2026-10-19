@@ -51,6 +51,18 @@ CROSS_CASES = [
         [{"value": "4.9"}, {"requirement_type": "NUTRITIONAL_MAX", "value": "5.0"}],
     ),
     (
+        "W_NUTRITIONAL_ABOVE_LEGAL",
+        WARNING,
+        [
+            {"requirement_type": "NUTRITIONAL_MAX", "value": "6.0"},
+            {"requirement_type": "LEGAL_MAX_EU", "value": "5.0"},
+        ],
+        [
+            {"requirement_type": "NUTRITIONAL_MAX", "value": "5.0"},
+            {"requirement_type": "LEGAL_MAX_EU", "value": "5.0"},
+        ],
+    ),
+    (
         "E_BASIS_DM_1000",
         ERROR,
         [{"value": "10.0"}, {"basis": "PER_100G_DM", "value": "4.10"}],
@@ -108,7 +120,10 @@ def test_cross_row_code_positive_and_negative(
         ("MR", "9", "SUL", "8", True),
         ("MR", "8", "SUL", "8", True),
         ("MR", "7", "SUL", "8", False),
-        ("NUTRITIONAL_MAX", "6.0", "LEGAL_MAX_EU", "5.0", True),
+        ("MIN_RECOMMENDED", "5.0", "LEGAL_MAX_EU", "5.0", True),
+        ("MIN_RECOMMENDED", "5.1", "SUL", "5.0", True),
+        # nutriční maximum proti zákonnému není chyba (W_NUTRITIONAL_ABOVE_LEGAL)
+        ("NUTRITIONAL_MAX", "6.0", "LEGAL_MAX_EU", "5.0", False),
         ("NUTRITIONAL_MAX", "5.0", "LEGAL_MAX_EU", "5.0", False),
         ("NUTRITIONAL_MAX", "4.0", "LEGAL_MAX_EU", "5.0", False),
     ],
@@ -128,6 +143,59 @@ def test_min_not_below_max(
     ]
     found = _found(validate_rows(rows, catalog), "E_MIN_NOT_BELOW_MAX")
     assert [(f.severity, f.lines) for f in found] == ([(ERROR, (2, 3))] if expected else [])
+
+
+@pytest.mark.parametrize(
+    ("nutritional", "legal", "expected"),
+    [("6.0", "5.0", True), ("5.01", "5.0", True), ("5.0", "5.00", False), ("4.0", "5.0", False)],
+)
+def test_nutritional_above_legal_is_only_a_warning(
+    catalog: dict[str, NutrientDef],
+    make_row: RowFactory,
+    nutritional: str,
+    legal: str,
+    expected: bool,
+) -> None:
+    rows = [
+        make_row(line=2, requirement_type="NUTRITIONAL_MAX", value=nutritional),
+        make_row(line=3, requirement_type="LEGAL_MAX_EU", value=legal),
+    ]
+    findings = validate_rows(rows, catalog)
+    assert [(f.code, f.severity, f.lines) for f in findings] == (
+        [("W_NUTRITIONAL_ABOVE_LEGAL", WARNING, (2, 3))] if expected else []
+    )
+    if expected:
+        assert "neobvyklé, ale možné" in findings[0].message
+        assert "originále" in findings[0].message
+
+
+def test_legal_max_below_nutritional_max_still_bounds_minima(
+    catalog: dict[str, NutrientDef], make_row: RowFactory
+) -> None:
+    # Zákonné maximum EU pod nutričním maximem: minimum musí být pod oběma.
+    rows = [
+        make_row(line=2, requirement_type="MIN_RECOMMENDED", value="5.5"),
+        make_row(line=3, requirement_type="NUTRITIONAL_MAX", value="6.0"),
+        make_row(line=4, requirement_type="LEGAL_MAX_EU", value="5.0"),
+    ]
+    findings = validate_rows(rows, catalog)
+    assert [(f.code, f.severity, f.lines) for f in findings] == [
+        ("E_MIN_NOT_BELOW_MAX", ERROR, (2, 4)),
+        ("W_NUTRITIONAL_ABOVE_LEGAL", WARNING, (3, 4)),
+    ]
+    rows[0] = make_row(line=2, requirement_type="MIN_RECOMMENDED", value="4.5")
+    assert [(f.code, f.severity) for f in validate_rows(rows, catalog)] == [
+        ("W_NUTRITIONAL_ABOVE_LEGAL", WARNING)
+    ]
+
+
+def test_nutritional_above_legal_only_within_same_group(
+    catalog: dict[str, NutrientDef], make_row: RowFactory
+) -> None:
+    nutritional = make_row(requirement_type="NUTRITIONAL_MAX", value="6.0")
+    legal = make_row(requirement_type="LEGAL_MAX_EU", value="5.0", basis="PER_100G_DM")
+    codes = {f.code for f in validate_rows([nutritional, legal], catalog)}
+    assert "W_NUTRITIONAL_ABOVE_LEGAL" not in codes
 
 
 @pytest.mark.parametrize(
@@ -627,6 +695,7 @@ def test_findings_do_not_depend_on_row_order(
     expected = validate_rows(rows, catalog)
     assert {f.code for f in expected} >= {
         "E_MIN_NOT_BELOW_MAX",
+        "W_NUTRITIONAL_ABOVE_LEGAL",
         "E_BASIS_DM_1000",
         "E_BASIS_MJ_1000",
         "E_BASIS_DM_MJ",

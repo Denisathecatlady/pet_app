@@ -88,6 +88,24 @@ a je součástí hashe vstupů.
 použijí se se stavem `CALCULATED`. Pokud chybí popel i sacharidy, ME suroviny je `PARTIAL` (počítá se
 jen z B a T) a výsledek energie dostane upozornění.
 
+**Implementace v jádře (`nutricalc.me`) 🛠 🩺:**
+- ME **dávky** se počítá z **denních součtů** makroživin celé dávky. Rovnice NRC jsou odvozené pro celé
+  krmivo a stravitelnost závisí na podílu vlákniny v sušině celé dávky, proto ME dávky obecně není
+  součtem ME surovin. ME jednotlivých surovin se počítá stejnou metodou zvlášť a slouží jen k podílům
+  surovin na energii.
+- `NRC2006_DOG_TDF`: TDF vstupuje jen do stravitelnosti. GE používá BNLV + hrubou vlákninu jako
+  u `NRC2006_DOG_CF` („ostatní stejně"), protože BNLV je definována dopočtem s hrubou vlákninou 🟡.
+- Vstupy jsou bodové hodnoty. `BELOW_LOD` a `TRACE` se počítají jako 0 s upozorněním.
+- Chybí-li BNLV, dopočte se jako 100 − (voda + B + T + popel + V) na 100 g, pokud jsou všechny složky
+  známé (záporný výsledek → 0 s upozorněním). Jinak se BNLV počítá jako 0 a ME je `PARTIAL`.
+- Chybí-li vláknina metody, počítá se jako 0 a ME je `PARTIAL`. Chybí-li vláknina pro stravitelnost,
+  ME může být nadhodnocená. U `NRC2006_DOG_TDF` bez hrubé vlákniny může být podhodnocená GE.
+  Podíl vlákniny v sušině potřebuje obsah vody. Bez něj (při vláknině > 0) je ME neznámá.
+- Chybí-li B nebo T u kterékoli suroviny, ME dávky je **neznámá** (`UNKNOWN`), nikdy se nedopočítává
+  nulou.
+- `NRC2006_CAT` jádro odmítne (`UnsupportedMethodError`), dokud nebudou koeficienty ověřené.
+  Metody `NRC2006_DOG_*` u kočky vyhodí `SpeciesMismatchError`.
+
 ## 6.4 Přepočet požadavků na skutečné zvíře 🛠 🩺
 
 Standardy na 1 000 kcal předpokládají referenční příjem (pes 110 nebo 95 kcal/kg^0,75, kočka 100 nebo

@@ -213,7 +213,8 @@ Tyto kontroly běží jen nad řádky bez chyb, s vyplněnou hodnotou a se stejn
 
 | Kód | Závažnost | Co znamená | Co udělat |
 |---|---|---|---|
-| `E_MIN_NOT_BELOW_MAX` | ERROR | Ve stejném profilu (fáze a `k`), bázi a podmínce není minimum menší než maximum, nutriční maximum je větší než zákonné, nebo `RATIO_MIN` ≥ `RATIO_MAX` | Ověřte obě buňky: obvykle jde o záměnu řádku, sloupce nebo typu požadavku. Maxima společná pro oba sloupce energie zapisujte u obou profilů (§4.1) |
+| `E_MIN_NOT_BELOW_MAX` | ERROR | Ve stejném profilu (fáze a `k`), bázi a podmínce není minimum (`MIN_RECOMMENDED`, `MR`, `AI`, `RA`) menší než každé maximum (`NUTRITIONAL_MAX`, `SUL`, `LEGAL_MAX_EU`), nebo `RATIO_MIN` ≥ `RATIO_MAX` | Ověřte obě buňky: obvykle jde o záměnu řádku, sloupce nebo typu požadavku. Maxima společná pro oba sloupce energie zapisujte u obou profilů (§4.1) |
+| `W_NUTRITIONAL_ABOVE_LEGAL` | WARNING | Ve stejném profilu, bázi a podmínce je nutriční maximum (`NUTRITIONAL_MAX`) větší než zákonné maximum EU (`LEGAL_MAX_EU`). Je to neobvyklé, ale možné: zákonný limit pro komerční krmiva může být nižší než nutriční maximum, proto to není chyba | Ověřte obě buňky v originále a výsledek kontroly zapište do `note` |
 | `E_BASIS_DM_1000` | ERROR / WARNING | Neplatí `na 1000 kcal ME = na 100 g sušiny × 2.5`. U poměrů (`RATIO_MIN`, `RATIO_MAX`) se hodnoty na obou bázích musí shodovat, protože poměr na bázi nezávisí | Ověřte obě buňky v originále. Viz §8 |
 | `E_BASIS_MJ_1000` | ERROR / WARNING | Neplatí `na 1000 kcal ME = na MJ ME × 4.184` (u poměrů shoda) | Dtto |
 | `E_BASIS_DM_MJ` | ERROR / WARNING | Neplatí `na MJ ME = na 100 g sušiny × 2.5 / 4.184` (u poměrů shoda) | Dtto |
@@ -281,8 +282,8 @@ verzi s poznámkou o změně (`changelog`).
 **Kontrolní seznam pro specialistu 🩺**
 
 - [ ] Přísné `validate` obou přepisů a `compare` skončily s 0 chybami (protokoly přiloženy).
-- [ ] Prošel jsem všechna `WARNING`: `W_SCALED_PAIR`, `W_NEEDS_CONVERSION`, `W_SPECIES_NOT_RELEVANT`,
-      `W_PRECISION_DIFFERS`, `W_PROVENANCE_DIFFERS` a nálezy `E_BASIS_*` snížené tokenem
+- [ ] Prošel jsem všechna `WARNING`: `W_SCALED_PAIR`, `W_NUTRITIONAL_ABOVE_LEGAL`, `W_NEEDS_CONVERSION`,
+      `W_SPECIES_NOT_RELEVANT`, `W_PRECISION_DIFFERS`, `W_PROVENANCE_DIFFERS` a nálezy `E_BASIS_*` snížené tokenem
       `CONFIRMED_AS_PRINTED`.
 - [ ] Namátkově jsem ověřil buňky proti originálu (rozsah vzorku určím sám, alespoň několik buněk
       z každé tabulky).

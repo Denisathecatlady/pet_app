@@ -160,7 +160,10 @@ automaticky (§3.5).
    - `na 1 000 kcal = na MJ × 4,184` ✅ S.
    - `hodnota(95) / hodnota(110) ≈ 110/95 = 1,158` u dospělých psů. Totéž `100/75` u koček, pokud
      tabulka vznikla přepočtem. Odchylky se označí k ručnímu ověření.
-   - minimum < nutriční maximum ≤ zákonné maximum, pokud jsou definovány,
+   - minimum < každé maximum (nutriční maximum, SUL, zákonné maximum EU), pokud jsou definovány, a
+     `RATIO_MIN` < `RATIO_MAX` (chyba). Vztah nutričního a zákonného maxima pevné pravidlo není:
+     zákonné maximum EU pro komerční krmiva může být nižší než nutriční maximum 🟡. Nutriční maximum
+     nad zákonným je proto jen varování k ověření v originále (`W_NUTRITIONAL_ABOVE_LEGAL`),
    - jednotka odpovídá kanonické jednotce živiny, nebo existuje explicitní převod.
 
    Kontroly z bodů 2 a 3 provádí nástroj `python -m refdata` (balíček `refdata/`, příkazy `validate`

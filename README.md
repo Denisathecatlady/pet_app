@@ -5,8 +5,9 @@ Nepočítá jen poměr svalovina : kosti : orgány. Počítá skutečný obsah �
 verzovaným standardem (výchozí FEDIAF 2025) a u každého čísla ukáže zdroj a spolehlivost.
 
 > **Stav projektu: Fáze 1 – analýza a odborné základy (dokončena, čeká na odbornou revizi).**
-> Zatím nevznikl žádný aplikační kód. Existuje jen pomocný nástroj `refdata` pro kontrolu přepisu
-> tabulek standardu (milník M1, viz [Nástroje](#nástroje)).
+> Aplikace (Django, UI) zatím nevznikla. Existuje pomocný nástroj `refdata` pro kontrolu přepisu
+> tabulek standardu (milník M1) a výpočetní jádro `nutricalc` (milník M2: od energie a součtů živin
+> po vyhodnocení proti standardu a souhrn, ověřené jen na syntetických datech), viz [Nástroje](#nástroje).
 
 ## Dokumentace Fáze 1
 
@@ -55,7 +56,30 @@ standardní knihovna, čísla jako `Decimal`). Postup pro přepisovatele a speci
 Návratový kód: `0` bez chyb, `1` alespoň jedna chyba (ERROR, včetně souboru přepisu v jiném kódování
 než UTF-8), `2` chybné použití, soubor nelze otevřít nebo katalog nelze použít.
 
-Testy: `.venv/bin/python -m pytest -q`
+Balíček [`nutricalc/`](nutricalc/) je výpočetní jádro (čistý Python 3.12+, bez Djanga a bez I/O,
+jen `Decimal` v lokálním kontextu, deterministické). Vstupem je neměnný snapshot `AnalysisInput`
+se všemi daty, výstupem `AnalysisResult` s hashem vstupu i výsledku; jádro nic nečte z databáze
+ani ze souborů. Moduly:
+
+| Modul | Obsah |
+|---|---|
+| `errors`, `decimal_ctx`, `vocab`, `flags` | výjimky, kontext `Decimal` a striktní převod čísel, slovníky, upozornění |
+| `units` | `Quantity` (hodnota + jednotka + báze), převody g/mg/µg a kcal/kJ, explicitní převody bází |
+| `energy` | RER, MER = k · BW^n, rovnice růstu (mimo MVP), `estimate_energy` se stavy OK / EXPERT_REQUIRED / BLOCKED ([05](docs/05-energeticky-model.md)) |
+| `composition` | hodnoty živin se stavy (`MISSING` ≠ 0), denní součty s intervaly a úplností ([06](docs/06-nutricni-analyza.md) §6.5) |
+| `me` | ME dávky z makroživin: `NRC2006_DOG_CF`, `NRC2006_DOG_TDF`, `MOD_ATWATER` ([06](docs/06-nutricni-analyza.md) §6.3) |
+| `requirements` | požadavky a sloupce standardu, `k_skut = DER / BW^n`, výběr sloupce a přepočet jen minim ([06](docs/06-nutricni-analyza.md) §6.4) |
+| `evaluation` | stavy živin (`BELOW_MIN` … `NOT_EVALUABLE`), pokrytí a zobrazení „< 100 %“, Ca:P, spolehlivost, konzervativní souhrn ([06](docs/06-nutricni-analyza.md) §6.6) |
+| `rules`, `gate` | deklarativní pravidla upozornění (data, ne kód) a bezpečnostní brána OK / EXPERT_REQUIRED / BLOCKED ([06](docs/06-nutricni-analyza.md) §6.7, [09](docs/09-rizika.md) §9.2) |
+| `snapshot`, `analysis` | `AnalysisInput`, kanonický JSON a SHA-256, `analyze_recipe` ([07](docs/07-django-schema.md) §7.2, [06](docs/06-nutricni-analyza.md) §6.9) |
+
+Koeficienty `k`, požadavky, prahy a pravidla jsou data, která předává volající. Testovací suroviny
+a standardy jsou syntetické (`SYN_*`, `TESTSTD`).
+
+Testy (vývojové závislosti `pytest` a `hypothesis` podle `pyproject.toml`): `.venv/bin/python -m pytest -q`
+(jen jádro: `.venv/bin/python -m pytest -q tests/nutricalc`). Testy jádra obsahují referenční příklady
+docs/05 §5.8 a docs/06 §6.10, vlastnostní testy (nezávislost na pořadí, chybějící data ≠ 0) a statické
+kontroly zdrojů (žádný `float`, I/O, čas ani náhoda).
 
 ## Předávací zpráva Fáze 1
 

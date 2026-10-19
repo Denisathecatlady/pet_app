@@ -1,4 +1,7 @@
-"""Statická pravidla zdrojového kódu balíčku ``refdata``."""
+"""Statická pravidla zdrojového kódu balíčku ``refdata``.
+
+Kontrola ``float`` je sdílená s testy ``nutricalc`` (``tests/static_checks.py``).
+"""
 
 import ast
 import re
@@ -6,65 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from tests.static_checks import float_offenders
+
 PACKAGE_DIR = Path(__file__).resolve().parents[2] / "refdata"
 TESTS_DIR = Path(__file__).resolve().parent
 SOURCES = sorted(PACKAGE_DIR.glob("*.py"))
 CODE_PATTERN = re.compile(r"[EWI]_[A-Z0-9_]+")
-FLOAT_NAMES = frozenset({"float", "complex"})
-FLOAT_ATTRIBUTES = FLOAT_NAMES | {"__float__", "__complex__"}
-FLOAT_MODULES = frozenset({"math", "cmath", "statistics", "fractions"})
-INT_CALLS = frozenset({"len", "int"})
-
-
-def _is_int_like(node: ast.expr) -> bool:
-    if isinstance(node, ast.Constant):
-        return isinstance(node.value, int) and not isinstance(node.value, bool)
-    if isinstance(node, ast.UnaryOp):
-        return _is_int_like(node.operand)
-    return (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id in INT_CALLS
-    )
-
-
-def float_offenders(source: str) -> list[str]:
-    """Vrátí místa, kudy by se do kódu mohl dostat ``float``.
-
-    Hlásí literál float/complex, jakékoli použití jména ``float``/``complex``
-    (volání, předání jako funkce, alias, ``isinstance``, anotace), atribut
-    ``__float__``, import z ``math``/``cmath``/``statistics``/``fractions`` a
-    pravé dělení dvou celých čísel (``1 / 2``, ``len(a) / len(b)``).
-    """
-    offenders = []
-    for node in ast.walk(ast.parse(source)):
-        line = getattr(node, "lineno", "?")
-        if isinstance(node, ast.Constant) and isinstance(node.value, (float, complex)):
-            offenders.append(f"ř. {line}: literál {node.value!r}")
-        elif isinstance(node, ast.Name) and node.id in FLOAT_NAMES:
-            offenders.append(f"ř. {line}: jméno {node.id}")
-        elif isinstance(node, ast.Attribute) and node.attr in FLOAT_ATTRIBUTES:
-            offenders.append(f"ř. {line}: atribut {node.attr}")
-        elif isinstance(node, ast.Import):
-            offenders.extend(
-                f"ř. {line}: import {alias.name}"
-                for alias in node.names
-                if alias.name.split(".")[0] in FLOAT_MODULES
-            )
-        elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
-            if module.split(".")[0] in FLOAT_MODULES or any(
-                alias.name in FLOAT_NAMES for alias in node.names
-            ):
-                offenders.append(f"ř. {line}: import z {module}")
-        elif (
-            isinstance(node, ast.BinOp)
-            and isinstance(node.op, ast.Div)
-            and _is_int_like(node.left)
-            and _is_int_like(node.right)
-        ):
-            offenders.append(f"ř. {line}: dělení celých čísel")
-    return offenders
 
 
 def test_package_sources_exist() -> None:
