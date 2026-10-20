@@ -1,0 +1,2287 @@
+diff --git a/nutricalc/analysis.py b/nutricalc/analysis.py
+index d32a015..37643f4 100644
+--- a/nutricalc/analysis.py
++++ b/nutricalc/analysis.py
+@@ -7,15 +7,21 @@
+ 3. ME dávky (:func:`nutricalc.me.ration_me`),
+ 4. denní součty všech živin z požadavků a povinných živin
+    (:func:`nutricalc.composition.sum_nutrient`, jednotky z požadavků),
+-5. obsah na 1000 kcal ME a podíl energie surovin bez údaje,
+-6. výběr sloupce a přepočet minim (:func:`nutricalc.requirements.select_requirements`),
+-7. vyhodnocení živin a poměru Ca:P (:mod:`nutricalc.evaluation`),
+-8. spolehlivost, pravidla upozornění, bezpečnostní brána a souhrn.
++5. obsah na 1000 kcal ME (jen z úplné ME dávky) a podíl energie surovin bez údaje,
++6. bezpečnostní brána, fáze 1: zvíře, zdravotní stavy, odhad energie, pravidla
++   nezávislá na stavech živin a upozornění výpočtu (ME, bezpečnostní příznaky
++   bez pravidla); ``BLOCKED`` zde ukončí rozbor bez vyhodnocení požadavků,
++7. výběr sloupce a přepočet minim (:func:`nutricalc.requirements.select_requirements`),
++8. vyhodnocení živin a poměru Ca:P (:mod:`nutricalc.evaluation`),
++9. pravidla podle stavů živin (nejvýše ``EXPERT_REQUIRED``), bezpečnostní
++   brána, fáze 2 (navíc upozornění přepočtu požadavků), spolehlivost a souhrn.
+ 
+ Situace v datech (chybějící údaje, blokace) jsou součástí výsledku, nikdy
+ výjimkou. Výjimky vznikají jen pro neplatný vstup (docs/06 §6.9). Výsledek
+ neobsahuje čas výpočtu; ``result_hash`` je SHA-256 kanonického JSON
+-výsledku bez pole ``result_hash``.
++výsledku bez pole ``result_hash``. Celý rozbor běží v kontextu jádra
++(:func:`~nutricalc.decimal_ctx.calc_context`), takže výsledek ani texty
++upozornění nezávisí na kontextu ``decimal`` volajícího.
+ """
+ 
+ from dataclasses import dataclass, replace
+@@ -42,6 +48,7 @@ from nutricalc.evaluation import (
+     confidence,
+     evaluate_nutrient,
+     evaluate_ratio,
++    format_decimal_cs,
+     no_data_evaluation,
+     per_1000kcal_interval,
+     profile_label,
+@@ -50,22 +57,27 @@ from nutricalc.evaluation import (
+ )
+ from nutricalc.flags import Flag, sorted_flags
+ from nutricalc.gate import GateResult, evaluate_gate
+-from nutricalc.me import ItemMe, MeResult, ration_me
++from nutricalc.me import MeResult, ration_me
+ from nutricalc.requirements import (
+     Requirement,
+     SelectedColumn,
+     SelectedRequirements,
++    StandardProfile,
+     actual_k,
+     check_profile_pair,
+     select_requirements,
+ )
+-from nutricalc.rules import RuleContext, RuleWarning, evaluate_rules
++from nutricalc.rules import RuleContext, RuleWarning, evaluate_rules, unhandled_safety_flags
+ from nutricalc.snapshot import AnalysisInput, canonical_json, input_hash, sha256_hex
+ from nutricalc.vocab import (
++    LIFE_STAGE_LABELS,
++    SPECIES_LABELS,
+     Completeness,
+     DataScope,
++    EnergyStatus,
+     GateStatus,
+     QualityGrade,
++    RequirementType,
+     Unit,
+     WarningLevel,
+ )
+@@ -87,12 +99,17 @@ class NutrientResult:
+     ``total`` – denní součet s intervalem, úplností, podílem hmotnosti bez
+     údaje a příspěvky surovin (:class:`~nutricalc.composition.NutrientTotal`).
+     ``per_1000kcal`` – obsah na 1000 kcal ME, nebo ``None``, když ME dávky
+-    není známá a kladná.
++    není úplná (``COMPLETE``) a kladná: přibližná ME (``PARTIAL``, chybějící
++    BNLV nebo vláknina počítané jako 0) se pro porovnání se standardem
++    nepoužívá, protože chybějící údaj není nula.
+     ``missing_energy_share`` – podíl energie surovin (ME položek) bez údaje
+-    o živině (0–1), nebo ``None``, když ME některé položky nelze spočítat.
++    o živině (0–1), nebo ``None``, když ME dávky není úplná nebo ME některé
++    položky nelze spočítat.
+     ``requirements`` – použité přepočtené požadavky (prázdné při blokaci).
+     ``evaluation`` – vyhodnocení, nebo ``None`` při blokaci.
+-    ``confidence`` – spolehlivost A–D, nebo ``None`` bez známého příspěvku.
++    ``confidence`` – spolehlivost A–D (suroviny bez údaje se počítají se svou
++    kvalitou, u ``MISSING`` D; viz :func:`~nutricalc.evaluation.confidence`),
++    nebo ``None`` bez známého příspěvku.
+     """
+ 
+     nutrient_code: str
+@@ -136,14 +153,18 @@ class RatioResult:
+ class AnalysisResult:
+     """Neměnný výsledek rozboru (docs/06 §6.9).
+ 
+-    ``energy`` – odhad energetické potřeby (DER = ``energy.kcal_point``).
+-    ``me`` – ME dávky a ME položek.
++    ``energy`` – odhad energetické potřeby (DER = ``energy.kcal_point``). Při
++    bráně ``BLOCKED`` bez čísel (stav ``BLOCKED``, upozornění
++    ``ENERGY_SUPPRESSED_BY_GATE``): automatický výpočet nelze doporučit.
++    ``me`` – ME dávky a ME položek (popisné, i při blokaci).
+     ``energy_deviation_pct`` – odchylka ME dávky od DER v %
+-    (``(ME − DER) / DER · 100``), nebo ``None``.
++    (``(ME − DER) / DER · 100``; má úplnost ``me.completeness``), nebo ``None``
++    (ME nebo DER není k dispozici, brána ``BLOCKED``).
+     ``nutrients`` – :class:`NutrientResult` seřazené podle kódu živiny.
+     ``ratios`` – :class:`RatioResult` (Ca:P).
+     ``warnings`` – upozornění pravidel (:class:`~nutricalc.rules.RuleWarning`).
+-    ``flags`` – upozornění rozboru (ME, přepočet požadavků, podmíněné požadavky).
++    ``flags`` – upozornění rozboru (ME, bezpečnostní příznaky bez pravidla,
++    přepočet požadavků, podmíněné požadavky, energie dávky mimo potřebu).
+     ``gate`` – bezpečnostní brána. ``summary`` – souhrn.
+     ``selected_column`` – použitý sloupec standardu, nebo ``None`` (blokace).
+     ``input_hash``, ``result_hash`` – SHA-256 (hex) vstupu a výsledku.
+@@ -207,15 +228,16 @@ def _validate(inp: AnalysisInput) -> None:
+     ):
+         if other != species:
+             raise SpeciesMismatchError(
+-                f"{label} platí pro druh {other}, zvíře je {species}. Použijte data pro "
+-                "správný druh."
++                f"{label} platí pro druh {SPECIES_LABELS[other]}, zvíře je "
++                f"{SPECIES_LABELS[species]}. Použijte data pro správný druh."
+             )
+     check_profile_pair(inp.high_profile, inp.low_profile)
+     stages = (inp.high_profile.life_stage, inp.low_profile.life_stage)
+     if inp.animal.life_stage not in stages:
+         raise SpeciesMismatchError(
+-            f"Zvíře patří do fáze {inp.animal.life_stage}, standard je pro fáze "
+-            f"{stages[0]} a {stages[1]}. Profil pro jinou fázi nelze použít."
++            f"Zvíře patří do fáze „{LIFE_STAGE_LABELS[inp.animal.life_stage]}“, standard je pro "
++            f"fáze „{LIFE_STAGE_LABELS[stages[0]]}“ a „{LIFE_STAGE_LABELS[stages[1]]}“. Profil "
++            "pro jinou fázi nelze použít."
+         )
+     versions = inp.data_versions_map
+     expected = {
+@@ -254,7 +276,8 @@ def _nutrient_units(inp: AnalysisInput) -> tuple[dict[str, Unit], bool]:
+     unknown = sorted(ratios - set(RATIO_COMPONENTS))
+     if unknown:
+         raise ValidationError(
+-            f"Poměry {', '.join(unknown)} jádro neumí spočítat (zná: {', '.join(RATIO_COMPONENTS)})."
++            f"Poměry {', '.join(unknown)} jádro neumí spočítat "
++            f"(zná: {', '.join(RATIO_COMPONENTS)})."
+         )
+     needs_ratio = CA_P in ratios or (CALCIUM in units and PHOSPHORUS in units)
+     if needs_ratio:
+@@ -269,16 +292,25 @@ def _nutrient_units(inp: AnalysisInput) -> tuple[dict[str, Unit], bool]:
+     return units, needs_ratio
+ 
+ 
+-def _missing_energy_share(total: NutrientTotal, per_item: tuple[ItemMe, ...]) -> Decimal | None:
+-    if any(entry.kcal is None for entry in per_item):
++def _usable_kcal(me: MeResult) -> Decimal | None:
++    """ME dávky pro obsah na 1000 kcal: jen úplná (``COMPLETE``) a kladná."""
++    if me.completeness != Completeness.COMPLETE or me.kcal is None or not me.kcal > 0:
++        return None
++    return me.kcal
++
++
++def _missing_energy_share(total: NutrientTotal, me: MeResult) -> Decimal | None:
++    if me.completeness != Completeness.COMPLETE:
++        return None
++    if any(entry.kcal is None for entry in me.per_item):
+         return None
+     known = {contributor.ingredient_code for contributor in total.contributors}
+     with calc_context():
+-        energy = sum((entry.kcal for entry in per_item if entry.kcal is not None), _ZERO)
++        energy = sum((entry.kcal for entry in me.per_item if entry.kcal is not None), _ZERO)
+         missing = sum(
+             (
+                 entry.kcal
+-                for entry in per_item
++                for entry in me.per_item
+                 if entry.kcal is not None and entry.ingredient_code not in known
+             ),
+             _ZERO,
+@@ -290,6 +322,7 @@ def _missing_energy_share(total: NutrientTotal, per_item: tuple[ItemMe, ...]) ->
+ 
+ def _confidence(inp: AnalysisInput, total: NutrientTotal) -> QualityGrade | None:
+     profiles = {entry.ingredient_code: entry.profile for entry in inp.items}
++    known = {contributor.ingredient_code for contributor in total.contributors}
+     return confidence(
+         (
+             QualityContributor(
+@@ -300,14 +333,17 @@ def _confidence(inp: AnalysisInput, total: NutrientTotal) -> QualityGrade | None
+             for contributor in total.contributors
+         ),
+         inp.confidence_threshold,
++        unknown_grades=(
++            profile.get(total.nutrient_code).quality
++            for code, profile in sorted(profiles.items())
++            if code not in known
++        ),
+     )
+ 
+ 
+ def _split(
+-    selected: SelectedRequirements | None, code: str
++    selected: SelectedRequirements, code: str
+ ) -> tuple[tuple[Requirement, ...], tuple[str, ...]]:
+-    if selected is None:
+-        return (), ()
+     reqs = selected.for_nutrient(code)
+     used = tuple(req for req in reqs if req.condition_note == _UNCONDITIONAL)
+     notes = tuple(sorted({req.condition_note for req in reqs} - {_UNCONDITIONAL}))
+@@ -316,7 +352,7 @@ def _split(
+ 
+ def _condition_flag(code: str, notes: tuple[str, ...]) -> Flag:
+     return Flag(
+-        WarningLevel.INFO,
++        WarningLevel.NUTRITION_WARNING,
+         "REQUIREMENT_CONDITION_NOT_APPLIED",
+         f"Živina {code}: požadavky s podmínkou ({'; '.join(notes)}) se automaticky "
+         "nevyhodnocují. Zda podmínka platí, posoudí odborník.",
+@@ -325,25 +361,113 @@ def _condition_flag(code: str, notes: tuple[str, ...]) -> Flag:
+ 
+ 
+ def _me_flags(me: MeResult, usable: bool) -> list[Flag]:
+-    if not usable:
+-        return [
+-            Flag(
+-                WarningLevel.NUTRITION_WARNING,
+-                "ME_NOT_AVAILABLE",
+-                "Energii dávky (ME) nelze určit nebo není kladná. Obsah živin na 1000 kcal ani "
+-                "porovnání se standardem proto nelze spočítat: živiny jsou „nelze vyhodnotit“.",
+-            )
+-        ]
+-    if me.completeness == Completeness.PARTIAL:
++    if usable:
++        return []
++    if me.completeness == Completeness.PARTIAL and me.kcal is not None and me.kcal > 0:
+         return [
+             Flag(
+                 WarningLevel.NUTRITION_WARNING,
+                 "ME_PARTIAL",
+-                "ME dávky je jen přibližná (chybějící BNLV nebo vláknina se počítaly jako 0), "
+-                "proto je přibližný i obsah živin na 1000 kcal.",
++                "ME dávky je jen přibližná: chybějící BNLV nebo vláknina se pro výpočet energie "
++                "počítaly jako 0. Obsah živin na 1000 kcal by byl jen odhad, proto se porovnání "
++                "se standardem neprovádí a živiny jsou „nelze vyhodnotit“. Doplňte BNLV (nebo "
++                "vodu a popel pro její dopočet) a vlákninu.",
+             )
+         ]
+-    return []
++    return [
++        Flag(
++            WarningLevel.NUTRITION_WARNING,
++            "ME_NOT_AVAILABLE",
++            "Energii dávky (ME) nelze určit nebo není kladná. Obsah živin na 1000 kcal ani "
++            "porovnání se standardem proto nelze spočítat: živiny jsou „nelze vyhodnotit“.",
++        )
++    ]
++
++
++def _energy_need_flags(usable_kcal: Decimal | None, energy: EnergyEstimate) -> list[Flag]:
++    """``RATION_ENERGY_OUTSIDE_NEED``: úplná ME dávky leží mimo rozsah odhadu potřeby.
++
++    Rozsah je ``[kcal_low, kcal_high]`` odhadu energie (z dat ``EnergyFactor``);
++    jádro žádnou další toleranci nepřidává.
++    """
++    low, high = energy.kcal_low, energy.kcal_high
++    if usable_kcal is None or low is None or high is None or low <= usable_kcal <= high:
++        return []
++    need = (
++        f"odhad {format_decimal_cs(low)} kcal/den"
++        if low == high
++        else f"rozsah {format_decimal_cs(low)}–{format_decimal_cs(high)} kcal/den"
++    )
++    return [
++        Flag(
++            WarningLevel.NUTRITION_WARNING,
++            "RATION_ENERGY_OUTSIDE_NEED",
++            f"ME dávky ({format_decimal_cs(usable_kcal)} kcal/den) je mimo odhad energetické "
++            f"potřeby zvířete ({need}). Vyhodnocení na 1000 kcal ME předpokládá, že zvíře "
++            "dávkou pokryje svou energetickou potřebu; při jiném příjmu energie neodpovídá ani "
++            "denní příjem živin. Upravte množství dávky a rozbor zopakujte.",
++        )
++    ]
++
++
++def _suppressed(energy: EnergyEstimate) -> EnergyEstimate:
++    """Odhad energie bez čísel při bráně ``BLOCKED`` (jako u BCS 1–2, docs/09 §9.2)."""
++    if energy.kcal_point is None:
++        return energy
++    return replace(
++        energy,
++        status=EnergyStatus.BLOCKED,
++        kcal_point=None,
++        kcal_low=None,
++        kcal_high=None,
++        rer_kcal=None,
++        flags=sorted_flags(
++            [
++                *energy.flags,
++                Flag(
++                    WarningLevel.BLOCKED,
++                    "ENERGY_SUPPRESSED_BY_GATE",
++                    "Bezpečnostní brána rozbor zablokovala, proto se energetická potřeba "
++                    "neuvádí: automatický výpočet nelze doporučit. Energetickou potřebu a dávku "
++                    "stanoví veterinář.",
++                ),
++            ]
++        ),
++    )
++
++
++def _describe(
++    inp: AnalysisInput, totals: dict[str, NutrientTotal], me: MeResult, usable_kcal: Decimal | None
++) -> list[NutrientResult]:
++    """Popisná část výsledku živin (bez požadavků a vyhodnocení)."""
++    return [
++        NutrientResult(
++            nutrient_code=code,
++            unit=total.unit,
++            total=total,
++            per_1000kcal=None if usable_kcal is None else per_1000kcal_interval(total, usable_kcal),
++            missing_energy_share=_missing_energy_share(total, me),
++            requirements=(),
++            evaluation=None,
++            confidence=_confidence(inp, total),
++        )
++        for code, total in totals.items()
++    ]
++
++
++def _requirement_kinds(
++    nutrients: list[NutrientResult], ratios: list[RatioResult]
++) -> dict[str, tuple[RequirementType, ...]]:
++    kinds = {
++        result.nutrient_code: tuple(req.requirement_type for req in result.requirements)
++        for result in nutrients
++    }
++    for ratio in ratios:
++        if ratio.evaluation is not None:
++            kinds[ratio.nutrient_code] = tuple(
++                req.requirement_type for req in ratio.evaluation.requirements
++            )
++    return kinds
+ 
+ 
+ # --- rozbor -------------------------------------------------------------------------------------
+@@ -358,32 +482,50 @@ def analyze_recipe(inp: AnalysisInput) -> AnalysisResult:
+         - živiny = všechny kódy z požadavků obou sloupců (bez poměrů); jednotka
+           z požadavků; při požadavku na Ca:P nebo při požadavcích na Ca i P se
+           počítají i součty Ca a P a poměr,
+-        - obsah na 1000 kcal z ME dávky; je-li ME neznámá nebo ≤ 0, jsou
+-          všechny živiny ``NOT_EVALUABLE`` (upozornění ``ME_NOT_AVAILABLE``),
++        - obsah na 1000 kcal jen z úplné a kladné ME dávky; je-li ME neznámá,
++          ≤ 0 nebo jen přibližná (``PARTIAL``: chybějící BNLV či vláknina
++          počítané jako 0), jsou všechny živiny s požadavky ``NOT_EVALUABLE``
++          (upozornění ``ME_NOT_AVAILABLE`` nebo ``ME_PARTIAL``),
++        - bezpečnostní brána ve dvou fázích: nejdřív zvíře, zdravotní stavy,
++          odhad energie, pravidla nezávislá na stavech živin a upozornění
++          výpočtu úrovně brány (``ME_EQUATION_OUT_OF_RANGE``,
++          ``UNHANDLED_SAFETY_FLAG``); po vyhodnocení navíc pravidla podle stavů
++          živin (nejvýše ``EXPERT_REQUIRED``) a upozornění přepočtu požadavků
++          (``REQUIREMENT_SCALED_MIN_ABOVE_MAX``),
++        - brána ``BLOCKED`` (fáze 1): výsledek obsahuje popisné součty, obsah
++          na 1000 kcal a poměr, ale žádné požadavky, stavy, upozornění pravidel
++          podle stavů ani čísla energetické potřeby (``energy`` bez čísel,
++          ``ENERGY_SUPPRESSED_BY_GATE``); souhrn ``BLOCKED``,
+         - sloupec standardu podle ``k_skut = DER / BW^n`` (DER = bodový odhad
+-          energie); minima se přepočtou, maxima ne,
++          energie); minima se přepočtou, maxima ne; souhrn počítá povinné
++          živiny použitého sloupce (při blokaci sloupce, který by se použil,
++          a bez odhadu energie vyššího sloupce),
+         - vyhodnocují se požadavky bez podmínky; podmíněné požadavky dostanou
+-          upozornění ``REQUIREMENT_CONDITION_NOT_APPLIED``,
+-        - bezpečnostní brána ``BLOCKED``: výsledek obsahuje popisné součty,
+-          obsah na 1000 kcal a poměr, ale žádné požadavky, stavy ani
+-          upozornění pravidel podle stavů živin; souhrn ``BLOCKED``.
++          upozornění ``REQUIREMENT_CONDITION_NOT_APPLIED`` a zmínku v souhrnu,
++        - úplná ME dávky mimo rozsah odhadu potřeby → ``RATION_ENERGY_OUTSIDE_NEED``.
+ 
+     Výstup: :class:`AnalysisResult`; stejný vstup dává stejný výsledek
+-    i hash nezávisle na pořadí položek.
++    i hash nezávisle na pořadí položek a na kontextu ``decimal`` volajícího.
+ 
+     Chyby (jen neplatný vstup, docs/06 §6.9): ``TypeError`` pro jiný typ;
+     :class:`~nutricalc.errors.ValidationError` pro jinou verzi jádra,
+     nesoulad verzí dat, profily různých standardů nebo neznámý poměr;
+     :class:`~nutricalc.errors.SpeciesMismatchError` pro data jiného druhu
+     nebo fáze; výjimky :func:`~nutricalc.energy.estimate_energy`
+-    (nevěrohodná hmotnost) a :func:`~nutricalc.me.ration_me` (neověřená
+-    metoda, rozporné složení).
++    (nevěrohodná hmotnost) a :func:`~nutricalc.me.ration_me`
++    (:class:`~nutricalc.errors.UnsupportedMethodError` pro neověřenou
++    metodu, rozporné složení: voda > 100 g/100 g, vláknina bez sušiny).
+     """
+     if not isinstance(inp, AnalysisInput):
+         raise TypeError(f"analyze_recipe očekává AnalysisInput, ne {type(inp).__name__}.")
++    with calc_context():
++        return _analyze(inp)
++
++
++def _analyze(inp: AnalysisInput) -> AnalysisResult:
+     _validate(inp)
+     animal = inp.animal
+-    energy = estimate_energy(
++    estimate = estimate_energy(
+         EnergyInput(
+             species=animal.species,
+             body_weight_kg=animal.body_weight_kg,
+@@ -394,64 +536,107 @@ def analyze_recipe(inp: AnalysisInput) -> AnalysisResult:
+         )
+     )
+     me = ration_me(inp.items, inp.me_method, animal.species)
+-    usable_kcal = me.kcal if me.kcal is not None and me.kcal > 0 else None
++    usable_kcal = _usable_kcal(me)
+     units, needs_ratio = _nutrient_units(inp)
+     totals = {code: sum_nutrient(inp.items, code, units[code]) for code in sorted(units)}
++    nutrients = _describe(inp, totals, me, usable_kcal)
++
++    # Fáze 1 brány: nic, co závisí na vyhodnocení požadavků.
++    base_context = RuleContext(species=animal.species, items=inp.items)
++    base_warnings = evaluate_rules(inp.warning_rules, base_context)
++    base_flags = [
++        *_me_flags(me, usable_kcal is not None),
++        *unhandled_safety_flags(inp.warning_rules, base_context),
++    ]
++    pre_gate = evaluate_gate(
++        animal.physiological_state,
++        animal.bcs,
++        animal.health_conditions,
++        estimate,
++        base_warnings,
++        (*me.flags, *base_flags),
++    )
+ 
+     selected: SelectedRequirements | None = None
+-    if energy.kcal_point is not None:
+-        k = actual_k(energy.kcal_point, animal.body_weight_kg, animal.species)
++    if estimate.kcal_point is not None:
++        k = actual_k(estimate.kcal_point, animal.body_weight_kg, animal.species)
+         selected = select_requirements(inp.high_profile, inp.low_profile, k)
+ 
+-    evaluation_flags: list[Flag] = [] if selected is None else list(selected.flags)
+-    nutrients: list[NutrientResult] = []
+-    for code, total in totals.items():
+-        interval = None if usable_kcal is None else per_1000kcal_interval(total, usable_kcal)
++    numerator, denominator = RATIO_COMPONENTS[CA_P]
++    if pre_gate.status == GateStatus.BLOCKED or selected is None:
++        # selected je None jen při odhadu energie BLOCKED, tedy i bráně BLOCKED.
++        summary_profile: StandardProfile = (
++            inp.high_profile if selected is None else selected.profile_used
++        )
++        ratios = (
++            [
++                RatioResult(
++                    nutrient_code=CA_P,
++                    numerator_code=numerator,
++                    denominator_code=denominator,
++                    interval=ratio_interval(totals[numerator], totals[denominator]),
++                    evaluation=None,
++                )
++            ]
++            if needs_ratio
++            else []
++        )
++        return _finish(
++            inp,
++            energy=_suppressed(estimate),
++            me=me,
++            deviation=None,
++            nutrients=nutrients,
++            ratios=ratios,
++            warnings=base_warnings,
++            flags=base_flags,
++            gate=pre_gate,
++            summary=summarize(
++                GateStatus.BLOCKED,
++                {},
++                summary_profile.mandatory_nutrients,
++                {},
++                standard_label=profile_label(summary_profile),
++            ),
++            column=None,
++        )
++
++    evaluation_flags: list[Flag] = list(selected.flags)
++    conditional: list[str] = []
++    evaluated: list[NutrientResult] = []
++    for result in nutrients:
++        code = result.nutrient_code
+         used, notes = _split(selected, code)
+-        evaluation = None
+-        if selected is not None:
+-            evaluation = (
+-                evaluate_nutrient(interval, used)
+-                if interval is not None
+-                else no_data_evaluation(code, used)
+-            )
+-            if notes:
+-                evaluation_flags.append(_condition_flag(code, notes))
+-        nutrients.append(
+-            NutrientResult(
+-                nutrient_code=code,
+-                unit=total.unit,
+-                total=total,
+-                per_1000kcal=interval,
+-                missing_energy_share=_missing_energy_share(total, me.per_item),
+-                requirements=used,
+-                evaluation=evaluation,
+-                confidence=_confidence(inp, total),
+-            )
++        evaluation = (
++            evaluate_nutrient(result.per_1000kcal, used)
++            if result.per_1000kcal is not None
++            else no_data_evaluation(code, used)
+         )
++        if notes:
++            evaluation_flags.append(_condition_flag(code, notes))
++            conditional.append(code)
++        evaluated.append(replace(result, requirements=used, evaluation=evaluation))
+ 
+-    ratios: list[RatioResult] = []
++    ratios = []
+     if needs_ratio:
+-        numerator, denominator = RATIO_COMPONENTS[CA_P]
+         used, notes = _split(selected, CA_P)
+-        ratio_evaluation = None
+-        if selected is not None:
+-            ratio_evaluation = evaluate_ratio(totals[numerator], totals[denominator], used)
+-            if notes:
+-                evaluation_flags.append(_condition_flag(CA_P, notes))
++        ratio_evaluation = evaluate_ratio(totals[numerator], totals[denominator], used)
++        if notes:
++            evaluation_flags.append(_condition_flag(CA_P, notes))
++            conditional.append(CA_P)
+         ratios.append(
+             RatioResult(
+                 nutrient_code=CA_P,
+                 numerator_code=numerator,
+                 denominator_code=denominator,
+-                interval=ratio_interval(totals[numerator], totals[denominator]),
++                interval=ratio_evaluation.interval,
+                 evaluation=ratio_evaluation,
+             )
+         )
+ 
+-    statuses = {
++    statuses: dict[str, frozenset[NutrientStatus]] = {
+         result.nutrient_code: frozenset(result.evaluation.all_statuses)
+-        for result in nutrients
++        for result in evaluated
+         if result.evaluation is not None
+     }
+     statuses.update(
+@@ -459,54 +644,72 @@ def analyze_recipe(inp: AnalysisInput) -> AnalysisResult:
+         for ratio in ratios
+         if ratio.evaluation is not None
+     )
+-    context = RuleContext(species=animal.species, items=inp.items, nutrient_statuses=statuses)
+-    warnings = evaluate_rules(inp.warning_rules, context)
++    # Pravidla podle stavů živin nesmí mít úroveň BLOCKED (WarningRule), takže
++    # fáze 2 brány může stav zhoršit nejvýše na EXPERT_REQUIRED.
++    warnings = evaluate_rules(
++        inp.warning_rules,
++        RuleContext(species=animal.species, items=inp.items, nutrient_statuses=statuses),
++    )
++    flags = [*base_flags, *evaluation_flags, *_energy_need_flags(usable_kcal, estimate)]
+     gate = evaluate_gate(
+-        animal.physiological_state, animal.bcs, animal.health_conditions, energy, warnings
++        animal.physiological_state,
++        animal.bcs,
++        animal.health_conditions,
++        estimate,
++        warnings,
++        (*me.flags, *flags),
++    )
++    primary = {
++        result.nutrient_code: result.evaluation.status
++        for result in evaluated
++        if result.evaluation is not None
++    }
++    primary.update(
++        (ratio.nutrient_code, ratio.evaluation.status)
++        for ratio in ratios
++        if ratio.evaluation is not None
++    )
++    summary = summarize(
++        gate.status,
++        primary,
++        selected.profile_used.mandatory_nutrients,
++        _requirement_kinds(evaluated, ratios),
++        standard_label=profile_label(selected.profile_used),
++        unapplied_conditions=conditional,
+     )
+-
+-    mandatory_all = inp.high_profile.mandatory_nutrients | inp.low_profile.mandatory_nutrients
+-    if gate.status == GateStatus.BLOCKED or selected is None:
+-        if gate.status == GateStatus.BLOCKED:
+-            nutrients = [replace(result, requirements=(), evaluation=None) for result in nutrients]
+-            ratios = [replace(ratio, evaluation=None) for ratio in ratios]
+-            warnings = evaluate_rules(
+-                inp.warning_rules, RuleContext(species=animal.species, items=inp.items)
+-            )
+-            evaluation_flags = []
+-        summary = summarize(
+-            gate.status, {}, mandatory_all, {}, standard_label=profile_label(inp.high_profile)
+-        )
+-        column = None
+-    else:
+-        primary = {
+-            result.nutrient_code: result.evaluation.status
+-            for result in nutrients
+-            if result.evaluation is not None
+-        }
+-        primary.update(
+-            (ratio.nutrient_code, ratio.evaluation.status)
+-            for ratio in ratios
+-            if ratio.evaluation is not None
+-        )
+-        maxima = {
+-            result.nutrient_code: tuple(req.requirement_type for req in result.requirements)
+-            for result in nutrients
+-        }
+-        summary = summarize(
+-            gate.status,
+-            primary,
+-            selected.profile_used.mandatory_nutrients,
+-            maxima,
+-            standard_label=profile_label(selected.profile_used),
+-        )
+-        column = selected.column
+-
+     deviation = None
+-    if me.kcal is not None and energy.kcal_point is not None:
++    if me.kcal is not None and estimate.kcal_point is not None:
+         with calc_context():
+-            deviation = (me.kcal - energy.kcal_point) / energy.kcal_point * _HUNDRED
++            deviation = (me.kcal - estimate.kcal_point) / estimate.kcal_point * _HUNDRED
++    return _finish(
++        inp,
++        energy=estimate,
++        me=me,
++        deviation=deviation,
++        nutrients=evaluated,
++        ratios=ratios,
++        warnings=warnings,
++        flags=flags,
++        gate=gate,
++        summary=summary,
++        column=selected.column,
++    )
++
+ 
++def _finish(
++    inp: AnalysisInput,
++    *,
++    energy: EnergyEstimate,
++    me: MeResult,
++    deviation: Decimal | None,
++    nutrients: list[NutrientResult],
++    ratios: list[RatioResult],
++    warnings: tuple[RuleWarning, ...],
++    flags: list[Flag],
++    gate: GateResult,
++    summary: Summary,
++    column: SelectedColumn | None,
++) -> AnalysisResult:
+     result = AnalysisResult(
+         energy=energy,
+         me=me,
+@@ -514,7 +717,7 @@ def analyze_recipe(inp: AnalysisInput) -> AnalysisResult:
+         nutrients=tuple(nutrients),
+         ratios=tuple(ratios),
+         warnings=warnings,
+-        flags=sorted_flags([*_me_flags(me, usable_kcal is not None), *evaluation_flags]),
++        flags=sorted_flags(flags),
+         gate=gate,
+         summary=summary,
+         selected_column=column,
+diff --git a/nutricalc/composition.py b/nutricalc/composition.py
+index fd51e95..88bb883 100644
+--- a/nutricalc/composition.py
++++ b/nutricalc/composition.py
+@@ -14,9 +14,8 @@ nezávisí na pořadí zadání (docs/07 §7.2).
+ from collections.abc import Iterable, Mapping
+ from dataclasses import dataclass, field
+ from decimal import Decimal
+-from functools import cached_property
+ from types import MappingProxyType
+-from typing import Final, NamedTuple, cast
++from typing import TYPE_CHECKING, Final, NamedTuple, cast
+ 
+ from nutricalc.decimal_ctx import calc_context, to_decimal, to_optional_decimal
+ from nutricalc.errors import DuplicateItemError, UnitMismatchError, ValidationError
+@@ -149,6 +148,9 @@ class IngredientProfile:
+     category: str
+     safety_flags: frozenset[str]
+     values: tuple[tuple[str, NutrientValue], ...]
++    if TYPE_CHECKING:
++        # Jen pro typovou kontrolu: index není pole dataclass (viz __init__).
++        _index: MappingProxyType[str, NutrientValue]
+ 
+     def __init__(
+         self,
+@@ -184,18 +186,23 @@ class IngredientProfile:
+                     f"Surovina {ingredient_code}: živina {code} je v profilu vícekrát."
+                 )
+             collected[code] = value
+-        object.__setattr__(self, "values", tuple(sorted(collected.items())))
+-
+-    @cached_property
+-    def _index(self) -> dict[str, NutrientValue]:
+-        # Mezipaměť pro vyhledávání; není polem dataclass, takže neovlivní
+-        # rovnost, hash ani serializaci profilu.
+-        return dict(self.values)
++        ordered = tuple(sorted(collected.items()))
++        object.__setattr__(self, "values", ordered)
++        # Index pro vyhledávání není polem dataclass (neovlivní rovnost, hash
++        # ani serializaci) a je neměnný, takže se nemůže rozejít s ``values``.
++        object.__setattr__(self, "_index", MappingProxyType(dict(ordered)))
++
++    def __reduce__(self) -> tuple[type["IngredientProfile"], tuple[object, ...]]:
++        # Kopie a pickle se sestaví znovu přes __init__ (index se nekopíruje).
++        return (
++            type(self),
++            (self.ingredient_code, self.profile_id, self.category, self.safety_flags, self.values),
++        )
+ 
+     @property
+     def values_map(self) -> Mapping[str, NutrientValue]:
+         """Hodnoty živin jako neměnné mapování ``kód → NutrientValue``."""
+-        return MappingProxyType(self._index)
++        return self._index
+ 
+     def get(self, nutrient_code: str) -> NutrientValue:
+         """Vrátí hodnotu živiny; neuvedená živina je :data:`MISSING_VALUE`."""
+@@ -363,6 +370,59 @@ class NutrientTotal:
+     missing_mass_share: Decimal
+     contributors: tuple[Contributor, ...]
+ 
++    def __post_init__(self) -> None:
++        code = require_text(self.nutrient_code, "NutrientTotal.nutrient_code")
++        object.__setattr__(self, "unit", as_member(Unit, self.unit, "jednotka součtu"))
++        object.__setattr__(self, "basis", as_member(Basis, self.basis, "báze součtu"))
++        completeness = as_member(Completeness, self.completeness, "úplnost součtu")
++        object.__setattr__(self, "completeness", completeness)
++        lower = to_decimal(self.lower, name=f"Dolní mez součtu {code}")
++        upper = to_optional_decimal(self.upper, name=f"Horní mez součtu {code}")
++        point = to_optional_decimal(self.point, name=f"Bodový součet {code}")
++        share = to_decimal(self.missing_mass_share, name=f"Podíl hmotnosti bez údaje {code}")
++        if share > 1:
++            raise ValidationError(
++                f"Podíl hmotnosti bez údaje {code} musí být 0 až 1 (zadáno {share})."
++            )
++        if completeness == Completeness.COMPLETE:
++            if upper is None:
++                raise ValidationError(f"Úplný (COMPLETE) součet {code} musí mít horní mez.")
++            if upper < lower:
++                raise ValidationError(
++                    f"Horní mez součtu {code} {upper} je menší než dolní mez {lower}."
++                )
++            if point is not None and not lower <= point <= upper:
++                raise ValidationError(
++                    f"Bodový součet {code} {point} leží mimo interval [{lower}; {upper}]."
++                )
++        elif upper is not None or point is not None:
++            raise ValidationError(
++                f"Součet {code} ve stavu {completeness} nesmí mít horní mez ani bodovou hodnotu "
++                "(chybějící údaj nelze odhadnout)."
++            )
++        if isinstance(self.contributors, (str, Contributor)) or not isinstance(
++            self.contributors, Iterable
++        ):
++            raise TypeError(f"Příspěvky součtu {code} musí být kolekce Contributor.")
++        contributors = []
++        for entry in self.contributors:
++            if not isinstance(entry, Contributor):
++                raise TypeError(f"Příspěvek součtu {code} musí být Contributor.")
++            name = require_text(entry.ingredient_code, "Kód suroviny příspěvku")
++            low = to_decimal(entry.lower, name=f"Dolní mez příspěvku {name}")
++            high = to_decimal(entry.upper, name=f"Horní mez příspěvku {name}")
++            if high < low:
++                raise ValidationError(f"Příspěvek {name}: horní mez {high} je menší než {low}.")
++            contributors.append(Contributor(name, low, high))
++        for name, number in (
++            ("lower", lower),
++            ("upper", upper),
++            ("point", point),
++            ("missing_mass_share", share),
++            ("contributors", tuple(contributors)),
++        ):
++            object.__setattr__(self, name, number)
++
+     def lower_quantity(self) -> Quantity:
+         """Dolní mez jako :class:`~nutricalc.units.Quantity` (na den)."""
+         return Quantity(self.lower, self.unit, self.basis)
+@@ -417,7 +477,7 @@ def sum_nutrient(
+                 has_point = False
+             else:
+                 point += part.point
+-        share = missing_grams / total_grams
++        share = _ZERO if missing_grams.is_zero() else missing_grams / total_grams
+         contributors.sort(key=lambda c: (-c.upper, c.ingredient_code))
+     if not contributors:
+         completeness = Completeness.UNKNOWN
+diff --git a/nutricalc/decimal_ctx.py b/nutricalc/decimal_ctx.py
+index cfe2afc..77f4dff 100644
+--- a/nutricalc/decimal_ctx.py
++++ b/nutricalc/decimal_ctx.py
+@@ -169,3 +169,49 @@ def to_optional_decimal(
+     if value is None:
+         return None
+     return to_decimal(value, signed=signed, name=name)
++
++
++def positive_decimal(value: Decimal | int | str, name: str) -> Decimal:
++    """Převede vstup na kladné ``Decimal`` (sdílená kontrola modulů jádra).
++
++    Vstup: hodnota pro :func:`to_decimal` (bez znaménka) a český název údaje
++    pro zprávu.
++    Výstup: ``Decimal`` > 0.
++    Chyby: jako :func:`to_decimal`;
++    :class:`~nutricalc.errors.InvalidInputError` (podtřída
++    :class:`~nutricalc.errors.ValidationError`) pro hodnotu ≤ 0.
++    """
++    number = to_decimal(value, name=name)
++    if not number > 0:
++        raise InvalidInputError(f"{name} musí být větší než 0 (zadáno {number}).")
++    return number
++
++
++def decimal_text(value: Decimal) -> str:
++    """Text čísla ``Decimal`` nezávislý na kontextu volajícího.
++
++    ``str(Decimal)`` bere tvar exponentu (``E`` nebo ``e``) z aktuálního
++    kontextu (``Context.capitals``); tato funkce převádí v kontextu jádra,
++    takže text je vždy stejný (např. ``"0E+2"``). Tvar čísla (exponent,
++    koncové nuly) zůstává přesně jako v hodnotě.
++
++    Vstup: ``Decimal``. Výstup: text. Chyby: ``TypeError`` pro jiný typ.
++    """
++    if not isinstance(value, Decimal):
++        raise TypeError(f"decimal_text očekává Decimal, ne {type(value).__name__}.")
++    with calc_context():
++        return str(value)
++
++
++def plain_text(value: Decimal) -> str:
++    """Text čísla pro zprávy: desetinný zápis bez exponentu (``"1E+3"`` → ``"1000"``).
++
++    Formát ``f`` nezávisí na kontextu volajícího. Slouží jen pro texty
++    upozornění a chyb; pro zobrazení v UI je
++    :func:`nutricalc.evaluation.format_decimal_cs`.
++
++    Vstup: ``Decimal``. Výstup: text. Chyby: ``TypeError`` pro jiný typ.
++    """
++    if not isinstance(value, Decimal):
++        raise TypeError(f"plain_text očekává Decimal, ne {type(value).__name__}.")
++    return format(value, "f")
+diff --git a/nutricalc/energy.py b/nutricalc/energy.py
+index feb39db..9b1c6e0 100644
+--- a/nutricalc/energy.py
++++ b/nutricalc/energy.py
+@@ -16,11 +16,18 @@ from types import MappingProxyType
+ from typing import Final
+ 
+ from nutricalc import ENGINE_VERSION
+-from nutricalc.decimal_ctx import calc_context, to_decimal, to_optional_decimal
++from nutricalc.decimal_ctx import (
++    calc_context,
++    positive_decimal,
++    to_decimal,
++    to_optional_decimal,
++)
+ from nutricalc.errors import InvalidInputError, SpeciesMismatchError, ValidationError
+ from nutricalc.flags import Flag, sorted_flags
+ from nutricalc.vocab import (
+     METABOLIC_EXPONENT,
++    PHYSIOLOGICAL_STATE_LABELS,
++    SPECIES_LABELS,
+     EnergyStatus,
+     PhysiologicalState,
+     Species,
+@@ -80,11 +87,21 @@ UNSUPPORTED_STATES: Final = frozenset(
+ )
+ 
+ 
+-def _positive(value: Decimal | int | str, name: str) -> Decimal:
+-    number = to_decimal(value, name=name)
+-    if not number > 0:
+-        raise InvalidInputError(f"{name} musí být větší než 0 (zadáno {number}).")
+-    return number
++def check_bcs(bcs: object) -> int | None:
++    """Ověří BCS na devítibodové škále (sdílená kontrola energie, brány a snapshotu).
++
++    Vstup: ``int`` 1–9 nebo ``None`` (BCS není známé).
++    Výstup: stejná hodnota.
++    Chyby: ``TypeError`` pro jiný typ než ``int`` (včetně ``bool``);
++    :class:`~nutricalc.errors.InvalidInputError` pro hodnotu mimo 1–9.
++    """
++    if bcs is None:
++        return None
++    if isinstance(bcs, bool) or not isinstance(bcs, int):
++        raise TypeError(f"BCS musí být celé číslo 1–9 nebo None, ne {type(bcs).__name__}.")
++    if not BCS_MIN <= bcs <= BCS_MAX:
++        raise InvalidInputError(f"BCS {bcs} je mimo devítibodovou škálu {BCS_MIN}–{BCS_MAX}.")
++    return bcs
+ 
+ 
+ # --- rovnice -----------------------------------------------------------------------
+@@ -100,7 +117,7 @@ def rer_kcal(body_weight_kg: Decimal | int | str) -> Decimal:
+     Chyby: ``TypeError`` pro ``float``;
+     :class:`~nutricalc.errors.InvalidInputError` pro hmotnost ≤ 0.
+     """
+-    weight = _positive(body_weight_kg, "Hmotnost (kg)")
++    weight = positive_decimal(body_weight_kg, "Hmotnost (kg)")
+     with calc_context():
+         return RER_COEFFICIENT * weight**RER_EXPONENT
+ 
+@@ -116,9 +133,9 @@ def mer_kcal(
+     Chyby: ``TypeError`` pro ``float``;
+     :class:`~nutricalc.errors.InvalidInputError` pro hodnotu ≤ 0.
+     """
+-    weight = _positive(body_weight_kg, "Hmotnost (kg)")
+-    factor = _positive(k, "Koeficient k")
+-    power = _positive(exponent, "Exponent metabolické hmotnosti")
++    weight = positive_decimal(body_weight_kg, "Hmotnost (kg)")
++    factor = positive_decimal(k, "Koeficient k")
++    power = positive_decimal(exponent, "Exponent metabolické hmotnosti")
+     with calc_context():
+         return factor * weight**power
+ 
+@@ -126,8 +143,8 @@ def mer_kcal(
+ def _growth_share(
+     body_weight_kg: Decimal | int | str, mature_bw_kg: Decimal | int | str
+ ) -> tuple[Decimal, Decimal]:
+-    weight = _positive(body_weight_kg, "Hmotnost (kg)")
+-    mature = _positive(mature_bw_kg, "Očekávaná hmotnost v dospělosti (kg)")
++    weight = positive_decimal(body_weight_kg, "Hmotnost (kg)")
++    mature = positive_decimal(mature_bw_kg, "Očekávaná hmotnost v dospělosti (kg)")
+     with calc_context():
+         share = weight / mature
+     if share > 1:
+@@ -277,7 +294,8 @@ class EnergyInput:
+             as_member(PhysiologicalState, self.physiological_state, "fyziologický stav"),
+         )
+         if self.bcs is not None and (isinstance(self.bcs, bool) or not isinstance(self.bcs, int)):
+-            raise TypeError(f"BCS musí být celé číslo 1–9 nebo None, ne {type(self.bcs).__name__}.")
++            # Typ se kontroluje hned; rozsah 1–9 hlásí estimate_energy (InvalidInputError).
++            check_bcs(self.bcs)
+         if not isinstance(self.neutered, bool):
+             raise TypeError(f"Údaj o kastraci musí být bool, ne {type(self.neutered).__name__}.")
+         if not isinstance(self.factor, EnergyFactor):
+@@ -314,24 +332,24 @@ def _check_input(inp: EnergyInput) -> None:
+     weight = inp.body_weight_kg
+     if not weight > 0:
+         raise InvalidInputError(f"Hmotnost musí být větší než 0 kg (zadáno {weight}).")
++    species = SPECIES_LABELS[inp.species]
+     if not low <= weight <= high:
+         raise InvalidInputError(
+             f"Hmotnost {weight} kg je mimo technický rozsah věrohodnosti pro druh "
+-            f"{inp.species} ({low}–{high} kg). Ověřte, zda je hmotnost zadaná v kg."
++            f"{species} ({low}–{high} kg). Ověřte, zda je hmotnost zadaná v kg."
+         )
+-    if inp.bcs is not None and not BCS_MIN <= inp.bcs <= BCS_MAX:
+-        raise InvalidInputError(f"BCS {inp.bcs} je mimo devítibodovou škálu {BCS_MIN}–{BCS_MAX}.")
++    check_bcs(inp.bcs)
+     factor = inp.factor
+     if factor.species != inp.species:
+         raise SpeciesMismatchError(
+-            f"Koeficient {factor.situation_code} platí pro druh {factor.species}, zvíře je "
+-            f"{inp.species}. Zvolte koeficient pro správný druh."
++            f"Koeficient {factor.situation_code} platí pro druh {SPECIES_LABELS[factor.species]}, "
++            f"zvíře je {species}. Zvolte koeficient pro správný druh."
+         )
+     expected = METABOLIC_EXPONENT[inp.species]
+     if factor.exponent != expected:
+         raise SpeciesMismatchError(
+             f"Koeficient {factor.situation_code} má exponent {factor.exponent}, druh "
+-            f"{inp.species} vyžaduje {expected}."
++            f"{species} vyžaduje {expected}."
+         )
+ 
+ 
+@@ -375,9 +393,9 @@ def estimate_energy(inp: EnergyInput) -> EnergyEstimate:
+             Flag(
+                 WarningLevel.BLOCKED,
+                 "ENERGY_STATE_NOT_SUPPORTED",
+-                f"Pro stav {inp.physiological_state} nelze automatický výpočet energie doporučit "
+-                "(růst, březost a laktace nejsou v této verzi podporovány). Energetickou "
+-                "potřebu stanoví veterinář.",
++                f"Pro stav „{PHYSIOLOGICAL_STATE_LABELS[inp.physiological_state]}“ nelze "
++                "automatický výpočet energie doporučit (růst, březost a laktace nejsou v této "
++                "verzi podporovány). Energetickou potřebu stanoví veterinář.",
+             )
+         )
+     if inp.bcs is None:
+diff --git a/nutricalc/errors.py b/nutricalc/errors.py
+index 9a60da2..80f209a 100644
+--- a/nutricalc/errors.py
++++ b/nutricalc/errors.py
+@@ -10,12 +10,15 @@ Hierarchie::
+     NutricalcError
+     ├── ValidationError            neplatná data nebo vstup
+     │   ├── InvalidInputError      neplatné číslo nebo údaj o zvířeti
+-    │   └── DuplicateItemError     stejná surovina v receptu dvakrát
++    │   ├── DuplicateItemError     stejná surovina v receptu dvakrát
++    │   └── UnsupportedMethodError metoda není ověřená ani implementovaná
+     ├── UnitMismatchError          různé nebo nepřevoditelné jednotky
+     ├── BasisMismatchError         různé báze (na 100 g, na den, na 1000 kcal…)
+     ├── MissingDataError           chybí údaj nutný pro převod
+-    ├── SpeciesMismatchError       koeficient nebo metoda pro jiný druh
+-    └── UnsupportedMethodError     metoda není ověřená ani implementovaná
++    └── SpeciesMismatchError       koeficient nebo metoda pro jiný druh
++
++Volající, který zachytává ``ValidationError`` jako „neplatný vstup“,
++zachytí i neznámou nebo neověřenou metodu (``UnsupportedMethodError``).
+ 
+ Stavy jako *BLOCKED* nebo *EXPERT_REQUIRED* nejsou výjimky, ale součást
+ výsledku (docs/05 §5.9, docs/06 §6.9).
+@@ -78,5 +81,9 @@ class SpeciesMismatchError(NutricalcError):
+     """Koeficient, exponent nebo metoda patří k jinému druhu zvířete."""
+ 
+ 
+-class UnsupportedMethodError(NutricalcError):
+-    """Metoda výpočtu není ověřená nebo v této verzi jádra není dostupná."""
++class UnsupportedMethodError(ValidationError):
++    """Metoda výpočtu není ověřená nebo v této verzi jádra není dostupná.
++
++    Je to volba ve vstupu (např. ``NRC2006_CAT``), proto podtřída
++    :class:`ValidationError` (docs/06 §6.9).
++    """
+diff --git a/nutricalc/evaluation.py b/nutricalc/evaluation.py
+index 0d14c08..ba19ecf 100644
+--- a/nutricalc/evaluation.py
++++ b/nutricalc/evaluation.py
+@@ -25,7 +25,7 @@ from nutricalc.errors import (
+     UnitMismatchError,
+     ValidationError,
+ )
+-from nutricalc.requirements import Requirement, StandardProfile, check_requirement_set
++from nutricalc.requirements import Requirement, StandardProfile, check_requirement_structure
+ from nutricalc.units import Quantity, per_day_to_per_1000kcal
+ from nutricalc.vocab import (
+     LIFE_STAGE_LABELS,
+@@ -255,7 +255,9 @@ def _applicable(
+         raise TypeError("Požadavky musí být kolekce Requirement.")
+     if not isinstance(condition_note, str):
+         raise TypeError(f"condition_note musí být text, ne {type(condition_note).__name__}.")
+-    checked = check_requirement_set(requirements)
++    # Jen struktura: přepočtené minimum smí vyjít nad maximem (situace v datech,
++    # kterou hlásí requirements.scaled_conflict_flags, ne chyba vstupu).
++    checked = check_requirement_structure(requirements)
+     for req in checked:
+         if req.nutrient_code != nutrient_code:
+             raise ValidationError(
+@@ -318,6 +320,11 @@ def evaluate_nutrient(
+ 
+     Minimum je jen požadavek typu ``MIN_RECOMMENDED``, ``MR``, ``AI`` nebo
+     ``RA``; maximum jen ``NUTRITIONAL_MAX``, ``SUL`` a ``LEGAL_MAX_EU``.
++    Požadavky se kontrolují jen strukturálně
++    (:func:`~nutricalc.requirements.check_requirement_structure`): přepočtené
++    minimum na nebo nad maximem je platná situace a obsah pak dostane stav
++    podle obou mezí (např. ``BELOW_MIN`` i ``ABOVE_MAX`` není možné splnit
++    zároveň; vždy aspoň jeden z nich nebo ``BORDERLINE_*``).
+ 
+     Vstup: :class:`NutrientInterval` s bází ``PER_1000KCAL_ME``, požadavky
+     téže živiny a podmínka.
+@@ -326,8 +333,8 @@ def evaluate_nutrient(
+     :class:`~nutricalc.errors.BasisMismatchError` pro jinou bázi obsahu;
+     :class:`~nutricalc.errors.UnitMismatchError` pro jinou jednotku obsahu
+     a požadavku; :class:`~nutricalc.errors.ValidationError` pro požadavek jiné
+-    živiny, poměrový požadavek nebo neplatný soubor požadavků
+-    (:func:`~nutricalc.requirements.check_requirement_set`).
++    živiny, poměrový požadavek nebo neplatnou strukturu požadavků
++    (:func:`~nutricalc.requirements.check_requirement_structure`).
+     """
+     if not isinstance(per_1000, NutrientInterval):
+         raise TypeError(
+@@ -412,6 +419,7 @@ def evaluate_nutrient(
+ # --- zobrazení -------------------------------------------------------------------------------
+ 
+ _MAX_DECIMALS: Final = 12
++_DIGIT_GROUP_SIZE: Final = 3
+ 
+ 
+ def format_decimal_cs(value: Decimal, decimals: int = 0) -> str:
+@@ -438,9 +446,9 @@ def format_decimal_cs(value: Decimal, decimals: int = 0) -> str:
+             sign = ""
+     integer, _, fraction = text.partition(".")
+     groups: list[str] = []
+-    while len(integer) > 3:
+-        groups.insert(0, integer[-3:])
+-        integer = integer[:-3]
++    while len(integer) > _DIGIT_GROUP_SIZE:
++        groups.insert(0, integer[-_DIGIT_GROUP_SIZE:])
++        integer = integer[:-_DIGIT_GROUP_SIZE]
+     groups.insert(0, integer)
+     result = " ".join(groups)
+     if fraction:
+@@ -489,6 +497,26 @@ def format_coverage(pct: Decimal, decimals: int = 0) -> str:
+     return f"{format_decimal_cs(rounded, places)} %"
+ 
+ 
++def format_percent_of_max(pct: Decimal, decimals: int = 0) -> str:
++    """Zobrazí procento nutričního maxima česky (docs/06 §6.6.2, docs/09 T5).
++
++    Zrcadlové pravidlo k :func:`format_coverage`: když je skutečná hodnota
++    > 100 % (maximum je překročeno) a po zaokrouhlení (``ROUND_HALF_EVEN``)
++    by vyšla 100 % nebo méně, zobrazí se ``"> 100 %"``. Zaokrouhlení tak
++    nikdy nevydává překročené maximum za splněné.
++
++    Vstup: procento ``Decimal`` (≥ 0) a počet desetinných míst (0–12).
++    Výstup: text, např. ``"85 %"``, ``"> 100 %"``, ``"112,5 %"``.
++    Chyby: jako :func:`format_coverage`.
++    """
++    value = to_decimal(pct, name="Procento maxima")
++    places = _check_decimals(decimals)
++    rounded = _round_for_display(value, places)
++    if value > _HUNDRED >= rounded:
++        return "> 100 %"
++    return f"{format_decimal_cs(rounded, places)} %"
++
++
+ # --- poměr Ca:P ------------------------------------------------------------------------------
+ 
+ 
+@@ -646,7 +674,10 @@ class QualityContributor(NamedTuple):
+ 
+ 
+ def confidence(
+-    contributors: Iterable[QualityContributor], threshold: Decimal
++    contributors: Iterable[QualityContributor],
++    threshold: Decimal,
++    *,
++    unknown_grades: Iterable[QualityGrade] = (),
+ ) -> QualityGrade | None:
+     """Spolehlivost výsledku živiny = nejhorší kvalita významných surovin (docs/06 §6.6.5).
+ 
+@@ -655,13 +686,21 @@ def confidence(
+     nebo žádná surovina práh nedosáhne, rozhoduje nejhorší kvalita všech
+     známých surovin (konzervativně).
+ 
+-    Vstup: suroviny se známým příspěvkem (:class:`QualityContributor`) a práh
+-    jako podíl 0–1 (``Decimal``; data, která předává volající 🛠 🩺).
++    Suroviny bez známé horní meze (``unknown_grades``, typicky ``MISSING``
++    s kvalitou D u součtu ``PARTIAL``) jsou vždy významné: jejich podíl na
++    součtu nelze určit, takže nelze ukázat, že je pod prahem. Spolehlivost
++    živiny, u které většina hmotnosti nemá údaj, proto nikdy není lepší než
++    kvalita chybějících údajů.
++
++    Vstup: suroviny se známým příspěvkem (:class:`QualityContributor`), práh
++    jako podíl 0–1 (jen ``Decimal``; data, která předává volající 🛠 🩺) a
++    kvality surovin bez známé horní meze.
+     Výstup: :class:`~nutricalc.vocab.QualityGrade`, nebo ``None``, když není
+-    žádná surovina se známým příspěvkem.
++    žádná surovina se známým příspěvkem (součet ``UNKNOWN``: spolehlivost
++    nemá smysl).
+     Chyby: ``TypeError`` pro ``float`` a jiné typy;
+-    :class:`~nutricalc.errors.InvalidInputError` pro práh mimo 0–1 nebo
+-    zápornou mez.
++    :class:`~nutricalc.errors.InvalidInputError` pro práh mimo 0–1, zápornou
++    mez nebo neznámou kvalitu.
+     """
+     if not isinstance(threshold, Decimal):
+         raise TypeError(f"Práh spolehlivosti musí být Decimal, ne {type(threshold).__name__}.")
+@@ -675,13 +714,17 @@ def confidence(
+         to_decimal(entry.upper, name=f"Horní mez příspěvku {entry.ingredient_code}")
+         as_member(QualityGrade, entry.quality, "kvalita údaje")
+         collected.append(entry)
++    if isinstance(unknown_grades, str) or not isinstance(unknown_grades, Iterable):
++        raise TypeError("unknown_grades musí být kolekce QualityGrade.")
++    unknown = [as_member(QualityGrade, grade, "kvalita údaje") for grade in unknown_grades]
+     if not collected:
+         return None
+     with calc_context():
+         total = sum((entry.upper for entry in collected), _ZERO)
+         limit = share * total
+     relevant = [entry for entry in collected if total > 0 and entry.upper >= limit]
+-    return worst_quality(entry.quality for entry in (relevant or collected))
++    known = [entry.quality for entry in (relevant or collected)]
++    return worst_quality([*known, *unknown])
+ 
+ 
+ # --- souhrn ----------------------------------------------------------------------------------
+@@ -706,7 +749,8 @@ class Summary:
+     z počtu povinných („vyhodnoceno X z Y“).
+     ``not_evaluated`` – povinné živiny, které vyhodnotit nešlo (seřazené).
+     ``status_counts`` – počet živin v každém hlavním stavu (všechny stavy
+-    v pořadí :data:`STATUS_PRIORITY`, i s nulou).
++    v pořadí :data:`STATUS_PRIORITY`, i s nulou). Při ``INCOMPLETE`` z nich
++    UI pozná i zjištěné nedostatky a nadbytky (zmiňuje je i ``message_cs``).
+     ``message_cs`` – česká souhrnná věta.
+     """
+ 
+@@ -744,6 +788,42 @@ def met_message(standard_label: str) -> str:
+ 
+ _UNEVALUATED: Final = frozenset({NutrientStatus.NOT_EVALUABLE, NutrientStatus.NO_REFERENCE})
+ 
++_FINDING_LABELS: Final = (
++    (NutrientStatus.BELOW_MIN, "pod minimem"),
++    (NutrientStatus.ABOVE_MAX, "nad nutričním maximem"),
++    (NutrientStatus.ABOVE_SUL, "nad bezpečným horním limitem"),
++    (NutrientStatus.BORDERLINE_MIN, "na hranici minima"),
++    (NutrientStatus.BORDERLINE_MAX, "na hranici maxima"),
++)
++
++
++def _upper_limited(kinds_by_code: Mapping[str, Iterable[RequirementType]]) -> set[str]:
++    """Kódy živin, které profil omezuje shora (vlastní maximum nebo poměr).
++
++    Vlastní maximum: ``NUTRITIONAL_MAX``, ``SUL``, ``LEGAL_MAX_EU``. Poměr
++    čitatel/jmenovatel (:data:`RATIO_COMPONENTS`): ``RATIO_MAX`` omezuje shora
++    čitatele (Ca), ``RATIO_MIN`` jmenovatele (P).
++    """
++    kinds = {
++        code: {as_member(RequirementType, kind, "typ požadavku") for kind in values}
++        for code, values in kinds_by_code.items()
++    }
++    limited = {code for code, values in kinds.items() if values & MAXIMUM_TYPES}
++    for ratio, (numerator, denominator) in RATIO_COMPONENTS.items():
++        values = kinds.get(ratio, set())
++        if RequirementType.RATIO_MAX in values:
++            limited.add(numerator)
++        if RequirementType.RATIO_MIN in values:
++            limited.add(denominator)
++    return limited
++
++
++def _findings_sentence(counts: Mapping[NutrientStatus, int]) -> str:
++    parts = [f"{label} {counts[status]}" for status, label in _FINDING_LABELS if counts[status]]
++    if not parts:
++        return ""
++    return f" Mezi vyhodnocenými živinami a poměry zjištěno: {', '.join(parts)}."
++
+ 
+ def summarize(
+     gate_status: GateStatus | str,
+@@ -752,6 +832,7 @@ def summarize(
+     maxima_by_nutrient: Mapping[str, Iterable[RequirementType]],
+     *,
+     standard_label: str,
++    unapplied_conditions: Iterable[str] = (),
+ ) -> Summary:
+     """Konzervativní souhrnný stav dávky (docs/06 §6.6.4).
+ 
+@@ -759,18 +840,25 @@ def summarize(
+         1. ``BLOCKED``, pokud brána blokuje (stavy živin se neuvádějí).
+         2. ``INCOMPLETE``, pokud je některá povinná živina ``NOT_EVALUABLE``,
+            ``NO_REFERENCE``, ve výsledcích chybí, nebo je ``MIN_MET_PARTIAL``
+-           a má maximum (``NUTRITIONAL_MAX``, ``SUL`` nebo ``LEGAL_MAX_EU``),
+-           které nelze ověřit; ``INCOMPLETE`` také tehdy, když se nepodařilo
+-           vyhodnotit vůbec nic (jen ``NOT_EVALUABLE`` a ``NO_REFERENCE``),
+-           protože věta „vše vyhodnocené splněno“ by pak byla zavádějící.
++           a profil ji omezuje shora, což nelze ověřit: vlastním maximem
++           (``NUTRITIONAL_MAX``, ``SUL`` nebo ``LEGAL_MAX_EU``) nebo poměrem
++           (``RATIO_MAX`` u čitatele, ``RATIO_MIN`` u jmenovatele, např.
++           Ca:P); ``INCOMPLETE`` také tehdy, když se nepodařilo vyhodnotit
++           vůbec nic (jen ``NOT_EVALUABLE`` a ``NO_REFERENCE``), protože věta
++           „vše vyhodnocené splněno“ by pak byla zavádějící. Věta souhrnu pak
++           uvádí i nedostatky, nadbytky a stavy na hranici zjištěné u již
++           vyhodnocených živin.
+         3. ``DEFICITS_OR_EXCESSES`` při ``BELOW_MIN``, ``ABOVE_MAX`` nebo
+            ``ABOVE_SUL`` u kterékoli živiny.
+         4. ``BORDERLINE`` při ``BORDERLINE_MIN`` nebo ``BORDERLINE_MAX``.
+         5. Jinak ``ALL_EVALUATED_MET`` (věta :func:`met_message`).
++    Kromě ``BLOCKED`` věta souhrnu vyjmenuje živiny s požadavky s podmínkou,
++    které se automaticky nevyhodnotily (``unapplied_conditions``).
+ 
+     Vstup: stav brány, hlavní stavy živin a poměrů podle kódu, povinné živiny
+-    profilu, typy maxim podle kódu živiny a český popis standardu
+-    (:func:`profile_label`).
++    profilu, typy použitých požadavků podle kódu živiny **i poměru** (pro
++    maxima a poměrová omezení), český popis standardu (:func:`profile_label`)
++    a kódy živin s nepoužitými podmíněnými požadavky.
+     Výstup: :class:`Summary`.
+     Chyby: ``TypeError`` pro jiné typy;
+     :class:`~nutricalc.errors.InvalidInputError` pro neznámý stav nebo typ.
+@@ -788,11 +876,18 @@ def summarize(
+     mandatory = sorted({require_text(code, "Kód povinné živiny") for code in mandatory_nutrients})
+     if not isinstance(maxima_by_nutrient, Mapping):
+         raise TypeError("maxima_by_nutrient musí být mapování kód → typy požadavků.")
+-    with_maximum = {
+-        code
+-        for code, kinds in maxima_by_nutrient.items()
+-        if any(as_member(RequirementType, kind, "typ požadavku") in MAXIMUM_TYPES for kind in kinds)
+-    }
++    with_maximum = _upper_limited(maxima_by_nutrient)
++    if isinstance(unapplied_conditions, str) or not isinstance(unapplied_conditions, Iterable):
++        raise TypeError("unapplied_conditions musí být kolekce kódů živin.")
++    conditional = sorted(
++        {require_text(code, "Kód živiny s podmínkou") for code in unapplied_conditions}
++    )
++    conditions_note = (
++        f" Požadavky s podmínkou se automaticky nevyhodnotily (posoudí odborník): "
++        f"{', '.join(conditional)}."
++        if conditional
++        else ""
++    )
+     if gate == GateStatus.BLOCKED:
+         return Summary(
+             status=SummaryStatus.BLOCKED,
+@@ -822,7 +917,8 @@ def summarize(
+         status = SummaryStatus.INCOMPLETE
+         message = (
+             f"Neúplné vyhodnocení (vyhodnoceno {evaluated} z {len(mandatory)} povinných živin). "
+-            f"Nelze plně vyhodnotit: {', '.join(not_evaluated)}. Chybějící údaj nelze nahradit nulou."
++            f"Nelze plně vyhodnotit: {', '.join(not_evaluated)}. Chybějící údaj nelze nahradit "
++            "nulou." + _findings_sentence(dict(counts))
+         )
+     elif not present - _UNEVALUATED:
+         status = SummaryStatus.INCOMPLETE
+@@ -845,5 +941,5 @@ def summarize(
+         required_count=len(mandatory),
+         not_evaluated=not_evaluated,
+         status_counts=counts,
+-        message_cs=message,
++        message_cs=message + conditions_note,
+     )
+diff --git a/nutricalc/flags.py b/nutricalc/flags.py
+index 7baaaff..616cbfd 100644
+--- a/nutricalc/flags.py
++++ b/nutricalc/flags.py
+@@ -57,14 +57,19 @@ class Flag:
+             require_text(self.subject, f"Předmět upozornění {self.code}")
+ 
+ 
+-def _sort_key(flag: Flag) -> tuple[int, str, str, str]:
++def flag_sort_key(flag: Flag) -> tuple[int, str, str, str]:
++    """Klíč pořadí upozornění: od nejzávažnější úrovně, dále kód, předmět a zpráva.
++
++    Sdílí ho :func:`sorted_flags` i důvody bezpečnostní brány
++    (:class:`nutricalc.gate.GateReason` je podtřída :class:`Flag`).
++    """
+     return (-WARNING_LEVEL_RANK[flag.level], flag.code, flag.subject or "", flag.message_cs)
+ 
+ 
+-def sorted_flags(flags: Iterable[Flag]) -> tuple[Flag, ...]:
++def sorted_flags[F: Flag](flags: Iterable[F]) -> tuple[F, ...]:
+     """Odstraní přesné duplicity a seřadí upozornění deterministicky.
+ 
+     Vstup: upozornění v libovolném pořadí. Výstup: n-tice od nejzávažnější
+-    úrovně, dále podle kódu, předmětu a zprávy.
++    úrovně, dále podle kódu, předmětu a zprávy (:func:`flag_sort_key`).
+     """
+-    return tuple(sorted(dict.fromkeys(flags), key=_sort_key))
++    return tuple(sorted(dict.fromkeys(flags), key=flag_sort_key))
+diff --git a/nutricalc/gate.py b/nutricalc/gate.py
+index 56cae0a..b13d1c2 100644
+--- a/nutricalc/gate.py
++++ b/nutricalc/gate.py
+@@ -12,7 +12,10 @@ Brána rozhoduje, zda smí jádro dávku vyhodnotit proti standardu:
+ ``BLOCKED`` má přednost před ``EXPERT_REQUIRED``. Politika fází a BCS je
+ stejná jako v :mod:`nutricalc.energy` (sdílené konstanty, docs/05 §5.3);
+ režim zdravotních stavů je data (``HealthCondition.mode``), která schvaluje
+-specialista 🛠 🩺.
++specialista 🛠 🩺. Do brány vstupují i upozornění výpočtu úrovně
++``EXPERT_REQUIRED`` nebo ``BLOCKED`` (např. rovnice ME mimo rozsah platnosti,
++přepočtené minimum nad maximem, bezpečnostní příznak bez pravidla), takže
++úroveň upozornění a stav brány si nikdy neodporují.
+ """
+ 
+ from collections.abc import Iterable
+@@ -20,17 +23,16 @@ from dataclasses import dataclass
+ 
+ from nutricalc.energy import (
+     BCS_BLOCKED,
+-    BCS_MAX,
+-    BCS_MIN,
+     BCS_WITHOUT_RESTRICTION,
+     UNSUPPORTED_STATES,
+     EnergyEstimate,
++    check_bcs,
+ )
+-from nutricalc.errors import InvalidInputError, ValidationError
+-from nutricalc.flags import check_code
++from nutricalc.errors import ValidationError
++from nutricalc.flags import Flag, check_code, sorted_flags
+ from nutricalc.rules import RuleWarning
+ from nutricalc.vocab import (
+-    WARNING_LEVEL_RANK,
++    PHYSIOLOGICAL_STATE_LABELS,
+     EnergyStatus,
+     GateStatus,
+     PhysiologicalState,
+@@ -68,17 +70,25 @@ class HealthConditionRef:
+ 
+ 
+ @dataclass(frozen=True)
+-class GateReason:
+-    """Jeden důvod stavu brány.
++class GateReason(Flag):
++    """Jeden důvod stavu brány (upozornění :class:`~nutricalc.flags.Flag` úrovně brány).
+ 
+-    ``level`` (``EXPERT_REQUIRED`` nebo ``BLOCKED``), ``code``, ``message_cs``
+-    a ``subject`` (čeho se týká: kód zdravotního stavu, suroviny…, jinak ``None``).
++    ``level`` (jen ``EXPERT_REQUIRED`` nebo ``BLOCKED``), ``code``,
++    ``message_cs`` a ``subject`` (čeho se týká: kód zdravotního stavu,
++    suroviny…, jinak ``None``). Validace a pořadí jsou stejné jako u
++    :class:`~nutricalc.flags.Flag`.
++
++    Chyby: jako :class:`~nutricalc.flags.Flag`;
++    :class:`~nutricalc.errors.ValidationError` pro jinou úroveň.
+     """
+ 
+-    level: WarningLevel
+-    code: str
+-    message_cs: str
+-    subject: str | None = None
++    def __post_init__(self) -> None:
++        super().__post_init__()
++        if self.level not in GATE_LEVELS:
++            raise ValidationError(
++                f"Důvod brány {self.code} musí mít úroveň EXPERT_REQUIRED nebo BLOCKED "
++                f"(zadáno {self.level})."
++            )
+ 
+ 
+ @dataclass(frozen=True)
+@@ -89,18 +99,10 @@ class GateResult:
+     reasons: tuple[GateReason, ...]
+ 
+ 
+-def _reason_key(reason: GateReason) -> tuple[int, str, str, str]:
+-    return (-WARNING_LEVEL_RANK[reason.level], reason.code, reason.subject or "", reason.message_cs)
+-
+-
+-def _check_bcs(bcs: object) -> int | None:
+-    if bcs is None:
+-        return None
+-    if isinstance(bcs, bool) or not isinstance(bcs, int):
+-        raise TypeError(f"BCS musí být celé číslo 1–9 nebo None, ne {type(bcs).__name__}.")
+-    if not BCS_MIN <= bcs <= BCS_MAX:
+-        raise InvalidInputError(f"BCS {bcs} je mimo devítibodovou škálu {BCS_MIN}–{BCS_MAX}.")
+-    return bcs
++_ENERGY_REASON_CODES = {
++    EnergyStatus.BLOCKED: "ENERGY_ESTIMATE_BLOCKED",
++    EnergyStatus.EXPERT_REQUIRED: "ENERGY_ESTIMATE_EXPERT_REQUIRED",
++}
+ 
+ 
+ def evaluate_gate(
+@@ -109,6 +111,7 @@ def evaluate_gate(
+     health_conditions: Iterable[HealthConditionRef],
+     energy_estimate: EnergyEstimate | None,
+     rule_warnings: Iterable[RuleWarning],
++    flags: Iterable[Flag] = (),
+ ) -> GateResult:
+     """Vyhodnotí bezpečnostní bránu (docs/09 §9.2).
+ 
+@@ -123,26 +126,31 @@ def evaluate_gate(
+         - odhad energie ve stavu ``BLOCKED`` / ``EXPERT_REQUIRED`` →
+           ``ENERGY_ESTIMATE_BLOCKED`` / ``ENERGY_ESTIMATE_EXPERT_REQUIRED``,
+         - upozornění pravidel úrovně ``BLOCKED`` nebo ``EXPERT_REQUIRED``
+-          (např. surovina toxická pro druh) → stejná úroveň a kód.
++          (např. surovina toxická pro druh) → stejná úroveň a kód,
++        - upozornění výpočtu (``flags``) úrovně ``BLOCKED`` nebo
++          ``EXPERT_REQUIRED`` (např. ``ME_EQUATION_OUT_OF_RANGE``,
++          ``REQUIREMENT_SCALED_MIN_ABOVE_MAX``, ``UNHANDLED_SAFETY_FLAG``) →
++          stejná úroveň, kód, zpráva a předmět; nižší úrovně bránu neovlivní.
+     Stav brány je nejzávažnější úroveň důvodů; bez důvodu ``OK``.
+ 
+     Vstup: fyziologický stav, BCS (1–9 nebo ``None``), zdravotní stavy,
+-    odhad energie (nebo ``None``) a upozornění pravidel.
++    odhad energie (nebo ``None``), upozornění pravidel a upozornění výpočtu.
+     Výstup: :class:`GateResult` (důvody bez duplicit, seřazené deterministicky).
+     Chyby: ``TypeError`` pro jiné typy;
+     :class:`~nutricalc.errors.InvalidInputError` pro BCS mimo 1–9 nebo
+     neznámý stav.
+     """
+     state = as_member(PhysiologicalState, physiological_state, "fyziologický stav")
+-    score = _check_bcs(bcs)
++    score = check_bcs(bcs)
+     reasons: list[GateReason] = []
+     if state in UNSUPPORTED_STATES:
+         reasons.append(
+             GateReason(
+                 WarningLevel.BLOCKED,
+                 "PHYSIOLOGICAL_STATE_NOT_SUPPORTED",
+-                f"Pro stav {state} nelze automatický výpočet doporučit (růst, březost a laktace "
+-                "nejsou v této verzi podporovány). Dávku musí sestavit veterinář.",
++                f"Pro stav „{PHYSIOLOGICAL_STATE_LABELS[state]}“ nelze automatický výpočet "
++                "doporučit (růst, březost a laktace nejsou v této verzi podporovány). Dávku musí "
++                "sestavit veterinář.",
+                 state.value,
+             )
+         )
+@@ -182,7 +190,7 @@ def evaluate_gate(
+             GateReason(
+                 condition.mode,
+                 "HEALTH_CONDITION",
+-                f"Zdravotní stav {condition.code}: {action} (bezpečnostní brána, docs/09 §9.2).",
++                f"Zdravotní stav (kód {condition.code}): {action}.",
+                 condition.code,
+             )
+         )
+@@ -197,20 +205,34 @@ def evaluate_gate(
+                 {flag.code for flag in energy_estimate.flags if flag.level in GATE_LEVELS}
+             )
+             detail = f" ({', '.join(codes)})" if codes else ""
++            action = (
++                "automatický výpočet nelze doporučit"
++                if energy_estimate.status == EnergyStatus.BLOCKED
++                else "výsledek musí posoudit odborník"
++            )
+             reasons.append(
+                 GateReason(
+                     level,
+-                    f"ENERGY_ESTIMATE_{energy_estimate.status.value}",
+-                    f"Odhad energetické potřeby má stav {energy_estimate.status}{detail}.",
++                    _ENERGY_REASON_CODES[energy_estimate.status],
++                    f"Odhad energetické potřeby: {action}{detail}.",
+                 )
+             )
++    if isinstance(rule_warnings, RuleWarning) or not isinstance(rule_warnings, Iterable):
++        raise TypeError("rule_warnings musí být kolekce RuleWarning.")
+     for warning in rule_warnings:
+         if not isinstance(warning, RuleWarning):
+             raise TypeError(f"Upozornění musí být RuleWarning, ne {type(warning).__name__}.")
+         if warning.level in GATE_LEVELS:
+             subject = ", ".join(warning.ingredient_codes) or None
+             reasons.append(GateReason(warning.level, warning.code, warning.message_cs, subject))
+-    ordered = tuple(sorted(dict.fromkeys(reasons), key=_reason_key))
++    if isinstance(flags, Flag) or not isinstance(flags, Iterable):
++        raise TypeError("flags musí být kolekce Flag.")
++    for flag in flags:
++        if not isinstance(flag, Flag):
++            raise TypeError(f"Upozornění výpočtu musí být Flag, ne {type(flag).__name__}.")
++        if flag.level in GATE_LEVELS:
++            reasons.append(GateReason(flag.level, flag.code, flag.message_cs, flag.subject))
++    ordered = sorted_flags(reasons)
+     if any(reason.level == WarningLevel.BLOCKED for reason in ordered):
+         status = GateStatus.BLOCKED
+     elif ordered:
+diff --git a/nutricalc/me.py b/nutricalc/me.py
+index c429d56..176bcc2 100644
+--- a/nutricalc/me.py
++++ b/nutricalc/me.py
+@@ -50,7 +50,7 @@ from nutricalc.composition import (
+     RecipeItem,
+     validate_items,
+ )
+-from nutricalc.decimal_ctx import calc_context, to_decimal, to_optional_decimal
++from nutricalc.decimal_ctx import calc_context, plain_text, to_decimal, to_optional_decimal
+ from nutricalc.errors import (
+     InvalidInputError,
+     MissingDataError,
+@@ -342,14 +342,14 @@ class _Resolver:
+             WarningLevel.INFO,
+             "ME_NFE_CALCULATED",
+             f"Surovina {code}: BNLV (NFE) dopočtena jako 100 − (voda + bílkoviny + tuk + popel "
+-            f"+ hrubá vláknina) = {computed} g/100 g.",
++            f"+ hrubá vláknina) = {plain_text(computed)} g/100 g.",
+         )
+         if computed < 0:
+             self.flag(
+                 WarningLevel.INFO,
+                 "ME_NFE_NEGATIVE_CLAMPED",
+-                f"Surovina {code}: dopočet BNLV vyšel záporně ({computed} g/100 g), součet "
+-                "složek přesahuje 100 g. BNLV se počítá jako 0; ověřte složení suroviny.",
++                f"Surovina {code}: dopočet BNLV vyšel záporně ({plain_text(computed)} g/100 g), "
++                "součet složek přesahuje 100 g. BNLV se počítá jako 0; ověřte složení suroviny.",
+             )
+             return _ZERO
+         return computed
+diff --git a/nutricalc/requirements.py b/nutricalc/requirements.py
+index 83c733e..00b06bf 100644
+--- a/nutricalc/requirements.py
++++ b/nutricalc/requirements.py
+@@ -10,7 +10,11 @@ Výběr sloupce (:func:`select_requirements`) je konzervativní návrh docs/06
+ dostane požadavky typu minimum vynásobené poměrem ``reference_k / k_skut``.
+ Maxima a poměry se nikdy nepřepočítávají. Lineární přepočet musí potvrdit
+ specialista, proto výsledek s faktorem ≠ 1 vždy nese upozornění
+-``REQUIREMENT_SCALING_NEEDS_REVIEW``.
++``REQUIREMENT_SCALING_NEEDS_REVIEW``. Přepočtené minimum může vyjít nad
++maximem téže živiny; to je situace v datech (žádná dávka nesplní obojí),
++ne chyba: výsledek nese upozornění ``REQUIREMENT_SCALED_MIN_ABOVE_MAX``
++(úroveň ``EXPERT_REQUIRED``, vstupuje do bezpečnostní brány), resp.
++informační ``REQUIREMENT_SCALED_MIN_ABOVE_LEGAL_MAX`` u zákonného maxima.
+ """
+ 
+ from collections import defaultdict
+@@ -20,10 +24,15 @@ from decimal import Decimal
+ from types import MappingProxyType
+ from typing import Final
+ 
+-from nutricalc.decimal_ctx import calc_context, round_significant, to_decimal
++from nutricalc.decimal_ctx import (
++    calc_context,
++    plain_text,
++    positive_decimal,
++    round_significant,
++    to_decimal,
++)
+ from nutricalc.errors import (
+     BasisMismatchError,
+-    InvalidInputError,
+     SpeciesMismatchError,
+     UnitMismatchError,
+     ValidationError,
+@@ -32,10 +41,12 @@ from nutricalc.flags import Flag, sorted_flags
+ from nutricalc.units import MASS_UNITS, Quantity, per_1000kcal_to_per_day
+ from nutricalc.vocab import (
+     BASIS_LABELS,
++    LIFE_STAGE_LABELS,
+     MAXIMUM_TYPES,
+     METABOLIC_EXPONENT,
+     MINIMUM_TYPES,
+     RATIO_TYPES,
++    SPECIES_LABELS,
+     Basis,
+     LifeStage,
+     RequirementType,
+@@ -68,6 +79,9 @@ K_ACTUAL_SIGNIFICANT_DIGITS: Final = 20
+ odstraní, aby nezměnila volbu sloupce na přesné hranici.
+ """
+ 
++MESSAGE_SIGNIFICANT_DIGITS: Final = 4
++"""Počet platných číslic čísel v textech upozornění (technická konstanta, jen zobrazení)."""
++
+ _TYPE_ORDER: Final = MappingProxyType(
+     {member: index for index, member in enumerate(RequirementType)}
+ )
+@@ -183,30 +197,45 @@ def requirement_sort_key(req: Requirement) -> tuple[str, str, int, Decimal, str,
+     )
+ 
+ 
+-def check_requirement_set(requirements: Iterable[Requirement]) -> tuple[Requirement, ...]:
+-    """Zkontroluje soubor požadavků a vrátí ho v deterministickém pořadí.
++def _groups(
++    requirements: Iterable[Requirement],
++) -> tuple[tuple[Requirement, ...], dict[tuple[str, str], list[Requirement]]]:
++    collected: list[Requirement] = []
++    for req in requirements:
++        if not isinstance(req, Requirement):
++            raise TypeError(f"Požadavek musí být Requirement, ne {type(req).__name__}.")
++        collected.append(req)
++    ordered = tuple(sorted(collected, key=requirement_sort_key))
++    groups: defaultdict[tuple[str, str], list[Requirement]] = defaultdict(list)
++    for req in ordered:
++        groups[(req.nutrient_code, req.condition_note)].append(req)
++    return ordered, dict(groups)
++
++
++def _where(code: str, note: str) -> str:
++    return f"{code}" + (f" (podmínka „{note}“)" if note else "")
++
++
++def check_requirement_structure(requirements: Iterable[Requirement]) -> tuple[Requirement, ...]:
++    """Zkontroluje strukturu souboru požadavků (bez vztahů mezi hodnotami).
+ 
+     Pravidla pro každou dvojici (živina, podmínka):
+         - nejvýše jeden požadavek typu minimum (``MIN_RECOMMENDED``, ``MR``,
+           ``AI``, ``RA`` dohromady),
+-        - nejvýše jeden požadavek od každého typu maxima a poměru,
+-        - minimum je menší než každé maximum a ``RATIO_MIN`` menší než
+-          ``RATIO_MAX`` (jako kontrola ``E_MIN_NOT_BELOW_MAX`` v ``refdata``).
++        - nejvýše jeden požadavek od každého typu maxima a poměru.
+     Všechny požadavky jedné živiny mají stejnou jednotku.
+ 
++    Tuto kontrolu používá vyhodnocení už přepočtených požadavků
++    (:mod:`nutricalc.evaluation`): přepočtené minimum smí vyjít nad
++    maximem (viz :func:`scaled_conflict_flags`), struktura ale platit musí.
++
+     Vstup: požadavky v libovolném pořadí.
+     Výstup: n-tice seřazená podle :func:`requirement_sort_key`.
+     Chyby: ``TypeError`` pro jinou položku než :class:`Requirement`;
+     :class:`~nutricalc.errors.ValidationError` pro porušení pravidel.
+     """
+-    collected: list[Requirement] = []
+-    for req in requirements:
+-        if not isinstance(req, Requirement):
+-            raise TypeError(f"Požadavek musí být Requirement, ne {type(req).__name__}.")
+-        collected.append(req)
+-    ordered = tuple(sorted(collected, key=requirement_sort_key))
++    ordered, groups = _groups(requirements)
+     units: dict[str, Unit] = {}
+-    groups: defaultdict[tuple[str, str], list[Requirement]] = defaultdict(list)
+     for req in ordered:
+         known = units.setdefault(req.nutrient_code, req.unit)
+         if known != req.unit:
+@@ -214,9 +243,8 @@ def check_requirement_set(requirements: Iterable[Requirement]) -> tuple[Requirem
+                 f"Požadavky živiny {req.nutrient_code} mají různé jednotky ({known} a {req.unit}). "
+                 "Všechny požadavky jedné živiny musí být v její kanonické jednotce."
+             )
+-        groups[(req.nutrient_code, req.condition_note)].append(req)
+     for (code, note), group in groups.items():
+-        where = f"{code}" + (f" (podmínka „{note}“)" if note else "")
++        where = _where(code, note)
+         minima = [req for req in group if req.is_minimum]
+         if len(minima) > 1:
+             kinds = ", ".join(req.requirement_type.value for req in minima)
+@@ -233,7 +261,31 @@ def check_requirement_set(requirements: Iterable[Requirement]) -> tuple[Requirem
+                     f"Živina {where} má požadavek {req.requirement_type} vícekrát."
+                 )
+             seen.add(req.requirement_type)
+-        for low in minima:
++    return ordered
++
++
++def check_requirement_set(requirements: Iterable[Requirement]) -> tuple[Requirement, ...]:
++    """Zkontroluje soubor požadavků profilu standardu a vrátí ho v deterministickém pořadí.
++
++    Pravidla: struktura podle :func:`check_requirement_structure` a navíc pro
++    každou dvojici (živina, podmínka) minimum menší než každé maximum
++    (``NUTRITIONAL_MAX``, ``SUL``, ``LEGAL_MAX_EU``) a ``RATIO_MIN`` menší
++    než ``RATIO_MAX`` (jako kontrola ``E_MIN_NOT_BELOW_MAX`` v ``refdata``).
++    Vztah nutričního a zákonného maxima se nekontroluje (zákonné maximum EU
++    smí být nižší než nutriční, v ``refdata`` jen ``W_NUTRITIONAL_ABOVE_LEGAL``).
++
++    Platí pro nepřepočtené hodnoty profilu (:class:`StandardProfile`).
++
++    Vstup: požadavky v libovolném pořadí.
++    Výstup: n-tice seřazená podle :func:`requirement_sort_key`.
++    Chyby: ``TypeError`` pro jinou položku než :class:`Requirement`;
++    :class:`~nutricalc.errors.ValidationError` pro porušení pravidel.
++    """
++    ordered = check_requirement_structure(requirements)
++    _, groups = _groups(ordered)
++    for (code, note), group in groups.items():
++        where = _where(code, note)
++        for low in (req for req in group if req.is_minimum):
+             for high in (req for req in group if req.is_maximum):
+                 if not low.value < high.value:
+                     raise ValidationError(
+@@ -304,9 +356,10 @@ class StandardProfile:
+         object.__setattr__(self, "reference_k", reference_k)
+         exponent = to_decimal(self.exponent, name="StandardProfile.exponent")
+         if exponent != METABOLIC_EXPONENT[species]:
++            label = SPECIES_LABELS[species]
+             raise SpeciesMismatchError(
+-                f"Profil {self.standard_code} {self.edition} pro druh {species} má exponent "
+-                f"{exponent}; druh {species} vyžaduje {METABOLIC_EXPONENT[species]}."
++                f"Profil {self.standard_code} {self.edition} pro druh {label} má exponent "
++                f"{exponent}; druh {label} vyžaduje {METABOLIC_EXPONENT[species]}."
+             )
+         object.__setattr__(self, "exponent", exponent)
+         if isinstance(self.requirements, (str, Requirement)) or not isinstance(
+@@ -327,7 +380,7 @@ class StandardProfile:
+         if lacking:
+             raise ValidationError(
+                 f"Povinné živiny {', '.join(lacking)} nemají v profilu {self.standard_code} "
+-                f"{self.edition} ({self.life_stage}) žádný požadavek."
++                f"{self.edition} ({LIFE_STAGE_LABELS[self.life_stage]}) žádný požadavek."
+             )
+ 
+     @property
+@@ -343,13 +396,6 @@ class StandardProfile:
+ # --- skutečný koeficient a výběr sloupce -----------------------------------------------------
+ 
+ 
+-def _positive(value: Decimal | int | str, name: str) -> Decimal:
+-    number = to_decimal(value, name=name)
+-    if not number > 0:
+-        raise InvalidInputError(f"{name} musí být větší než 0 (zadáno {number}).")
+-    return number
+-
+-
+ def actual_k(
+     der_kcal: Decimal | int | str, body_weight_kg: Decimal | int | str, species: Species | str
+ ) -> Decimal:
+@@ -362,8 +408,8 @@ def actual_k(
+     Chyby: ``TypeError`` pro ``float``;
+     :class:`~nutricalc.errors.InvalidInputError` pro hodnotu ≤ 0 nebo neznámý druh.
+     """
+-    der = _positive(der_kcal, "Energetická potřeba DER (kcal/den)")
+-    weight = _positive(body_weight_kg, "Hmotnost (kg)")
++    der = positive_decimal(der_kcal, "Energetická potřeba DER (kcal/den)")
++    weight = positive_decimal(body_weight_kg, "Hmotnost (kg)")
+     member = as_member(Species, species, "druh")
+     with calc_context():
+         value = der / weight ** METABOLIC_EXPONENT[member]
+@@ -455,8 +501,8 @@ def check_profile_pair(high_profile: StandardProfile, low_profile: StandardProfi
+             raise TypeError(f"{name} musí být StandardProfile, ne {type(profile).__name__}.")
+     if high_profile.species != low_profile.species:
+         raise SpeciesMismatchError(
+-            f"Profily standardu patří různým druhům ({high_profile.species} a "
+-            f"{low_profile.species}). Oba sloupce musí být pro druh zvířete."
++            f"Profily standardu patří různým druhům ({SPECIES_LABELS[high_profile.species]} a "
++            f"{SPECIES_LABELS[low_profile.species]}). Oba sloupce musí být pro druh zvířete."
+         )
+     if (high_profile.standard_code, high_profile.edition) != (
+         low_profile.standard_code,
+@@ -469,7 +515,8 @@ def check_profile_pair(high_profile: StandardProfile, low_profile: StandardProfi
+     if LIFE_STAGE_PAIRS.get(high_profile.life_stage) != low_profile.life_stage:
+         allowed = ", ".join(f"{high} + {low}" for high, low in LIFE_STAGE_PAIRS.items())
+         raise SpeciesMismatchError(
+-            f"Fáze {high_profile.life_stage} a {low_profile.life_stage} netvoří dvojici sloupců "
++            f"Fáze „{LIFE_STAGE_LABELS[high_profile.life_stage]}“ a "
++            f"„{LIFE_STAGE_LABELS[low_profile.life_stage]}“ netvoří dvojici sloupců "
+             f"standardu (povolené dvojice: {allowed})."
+         )
+     if not high_profile.reference_k > low_profile.reference_k:
+@@ -513,6 +560,68 @@ def scale_minima(requirements: Iterable[Requirement], factor: Decimal) -> tuple[
+     return tuple(result)
+ 
+ 
++def _short(value: Decimal) -> str:
++    return plain_text(round_significant(value, MESSAGE_SIGNIFICANT_DIGITS))
++
++
++def scaled_conflict_flags(requirements: Iterable[Requirement]) -> tuple[Flag, ...]:
++    """Najde přepočtená minima, která nejsou menší než maximum téže živiny.
++
++    Po přepočtu minim (:func:`scale_minima`) může minimum vyjít na nebo nad
++    maximem, které se nepřepočítává. Taková živina nemůže být v žádné dávce
++    zároveň nad minimem a pod maximem; nejde o chybu dat, ale o situaci, kterou
++    musí posoudit odborník (docs/06 §6.4).
++
++    Pravidla pro každou dvojici (živina, podmínka) a každé minimum:
++        - ``minimum ≥ NUTRITIONAL_MAX`` nebo ``minimum ≥ SUL`` → upozornění
++          ``REQUIREMENT_SCALED_MIN_ABOVE_MAX`` úrovně ``EXPERT_REQUIRED``
++          (předmět = kód živiny),
++        - ``minimum ≥ LEGAL_MAX_EU`` → informační upozornění
++          ``REQUIREMENT_SCALED_MIN_ABOVE_LEGAL_MAX`` (zákonné maximum EU se
++          týká komerčních krmiv a vyhodnocuje se jen informativně).
++
++    Vstup: požadavky (obvykle už přepočtené).
++    Výstup: upozornění seřazená podle :func:`~nutricalc.flags.sorted_flags`.
++    Chyby: jako :func:`check_requirement_structure`.
++    """
++    _, groups = _groups(check_requirement_structure(requirements))
++    flags: list[Flag] = []
++    for (code, note), group in groups.items():
++        where = _where(code, note)
++        for low in (req for req in group if req.is_minimum):
++            for high in (req for req in group if req.is_maximum):
++                if low.value < high.value:
++                    continue
++                values = (
++                    f"minimum {low.requirement_type} {_short(low.value)} {low.unit} "
++                    f"a {high.requirement_type} {_short(high.value)} {high.unit} na 1000 kcal ME"
++                )
++                if high.requirement_type == RequirementType.LEGAL_MAX_EU:
++                    flags.append(
++                        Flag(
++                            WarningLevel.INFO,
++                            "REQUIREMENT_SCALED_MIN_ABOVE_LEGAL_MAX",
++                            f"Živina {where}: po přepočtu na skutečný příjem energie je "
++                            f"{values}; minimum není menší než zákonné maximum EU pro komerční "
++                            "krmiva. Splnění minima proto vždy překročí zákonný limit "
++                            "(informativní údaj).",
++                            subject=code,
++                        )
++                    )
++                else:
++                    flags.append(
++                        Flag(
++                            WarningLevel.EXPERT_REQUIRED,
++                            "REQUIREMENT_SCALED_MIN_ABOVE_MAX",
++                            f"Živina {where}: po přepočtu na skutečný příjem energie je "
++                            f"{values}; minimum není menší než maximum. Žádná dávka nesplní "
++                            "obojí. Přepočet požadavků i dávku musí posoudit odborník.",
++                            subject=code,
++                        )
++                    )
++    return sorted_flags(flags)
++
++
+ def select_requirements(
+     high_profile: StandardProfile, low_profile: StandardProfile, k_actual: Decimal | int | str
+ ) -> SelectedRequirements:
+@@ -526,7 +635,9 @@ def select_requirements(
+     Faktor se použije **jen** na požadavky typu minimum (``MIN_RECOMMENDED``,
+     ``MR``, ``AI``, ``RA``); maxima a poměry se nikdy nepřepočítávají. Při
+     faktoru ≠ 1 nese výsledek upozornění ``REQUIREMENT_SCALING_NEEDS_REVIEW``
+-    (lineární přepočet musí potvrdit specialista 🩺).
++    (lineární přepočet musí potvrdit specialista 🩺) a případně upozornění
++    z :func:`scaled_conflict_flags` (přepočtené minimum na nebo nad maximem).
++    Pro situaci v datech nikdy nevyhazuje výjimku.
+ 
+     Vstup: profil vyššího a nižšího sloupce (:func:`check_profile_pair`) a
+     skutečný koeficient zvířete (> 0, viz :func:`actual_k`).
+@@ -535,7 +646,7 @@ def select_requirements(
+     :class:`~nutricalc.errors.InvalidInputError` pro ``k_actual`` ≤ 0.
+     """
+     check_profile_pair(high_profile, low_profile)
+-    k = _positive(k_actual, "Skutečný koeficient k")
++    k = positive_decimal(k_actual, "Skutečný koeficient k")
+     flags: list[Flag] = []
+     if k >= high_profile.reference_k:
+         used = high_profile
+@@ -551,19 +662,22 @@ def select_requirements(
+                 Flag(
+                     WarningLevel.NUTRITION_WARNING,
+                     "REQUIREMENT_SCALING_NEEDS_REVIEW",
+-                    f"Skutečný příjem energie (k ≈ {round_significant(k, 4)}) je nižší než "
+-                    f"referenční hodnota sloupce ({low_profile.reference_k}). Požadavky typu "
+-                    f"minimum byly lineárně přepočteny faktorem ≈ {round_significant(factor, 4)}; "
+-                    "maxima zůstala beze změny. Lineární přepočet je pracovní návrh, který musí "
+-                    "potvrdit veterinární nutriční specialista.",
++                    f"Skutečný příjem energie (k ≈ {_short(k)}) je nižší než referenční hodnota "
++                    f"sloupce ({plain_text(low_profile.reference_k)}). Požadavky typu minimum "
++                    f"byly lineárně přepočteny faktorem ≈ {_short(factor)}; maxima zůstala beze "
++                    "změny. Lineární přepočet je pracovní návrh, který musí potvrdit "
++                    "veterinární nutriční specialista.",
+                 )
+             )
++    requirements = scale_minima(used.requirements, factor)
++    if factor != 1:
++        flags.extend(scaled_conflict_flags(requirements))
+     return SelectedRequirements(
+         profile_used=used,
+         k_actual=k,
+         min_scale_factor=factor,
+         column_code=column_code(used),
+-        requirements=scale_minima(used.requirements, factor),
++        requirements=requirements,
+         flags=sorted_flags(flags),
+     )
+ 
+diff --git a/nutricalc/rules.py b/nutricalc/rules.py
+index 8321104..4ec6f50 100644
+--- a/nutricalc/rules.py
++++ b/nutricalc/rules.py
+@@ -6,19 +6,30 @@ zdroj), která schvaluje specialista a předává volající. Jádro neobsahuje
+ (:class:`Always`, :class:`IngredientFlagPresent`,
+ :class:`CategoryMassShareAbove`, :class:`NutrientStatusIn`) a umí je
+ deterministicky vyhodnotit (:func:`evaluate_rules`).
++
++Pojistka úplnosti dat: bezpečnostní příznak suroviny, na který neodkazuje
++žádné pravidlo platné pro druh zvířete, hlásí :func:`unhandled_safety_flags`
++(úroveň ``EXPERT_REQUIRED``, vstupuje do bezpečnostní brány). Jádro tak
++nespoléhá na to, že volající pravidlo pro daný příznak nezapomněl.
+ """
+ 
+ from collections.abc import Iterable, Mapping
+ from dataclasses import dataclass, field
+ from decimal import Decimal
+-from types import MappingProxyType
+ 
+ from nutricalc.composition import RecipeItem, validate_items
+ from nutricalc.decimal_ctx import calc_context, to_decimal
+ from nutricalc.errors import InvalidInputError, ValidationError
+ from nutricalc.evaluation import NutrientStatus
+-from nutricalc.flags import check_code
+-from nutricalc.vocab import WARNING_LEVEL_RANK, Species, WarningLevel, as_member, require_text
++from nutricalc.flags import Flag, check_code, sorted_flags
++from nutricalc.vocab import (
++    SPECIES_LABELS,
++    WARNING_LEVEL_RANK,
++    Species,
++    WarningLevel,
++    as_member,
++    require_text,
++)
+ 
+ # --- podmínky -------------------------------------------------------------------------------
+ 
+@@ -71,7 +82,8 @@ class NutrientStatusIn:
+     """Platí, když má živina (nebo poměr) některý ze stavů ``statuses``.
+ 
+     Porovnávají se všechny stavy živiny (``all_statuses``), nejen hlavní stav.
+-    Živina bez vyhodnocení (např. při blokaci) podmínku nesplní.
++    Živina bez vyhodnocení (např. při blokaci) podmínku nesplní. Pravidlo
++    s touto podmínkou nesmí mít úroveň ``BLOCKED`` (viz :class:`WarningRule`).
+     Chyby: ``TypeError``; :class:`~nutricalc.errors.ValidationError` pro
+     prázdný kód nebo prázdnou množinu stavů.
+     """
+@@ -108,15 +120,19 @@ class WarningRule:
+     Pole (jen jako pojmenované argumenty):
+         ``code`` – stabilní kód (velká písmena, číslice, _).
+         ``level`` – :class:`~nutricalc.vocab.WarningLevel` (``BLOCKED`` a
+-        ``EXPERT_REQUIRED`` vstupují do bezpečnostní brány).
++        ``EXPERT_REQUIRED`` vstupují do bezpečnostní brány). Pravidlo
++        s podmínkou :class:`NutrientStatusIn` smí mít nejvýše
++        ``EXPERT_REQUIRED``: brána ``BLOCKED`` vyřadí vyhodnocení živin, takže
++        by pravidlo podle stavu živiny zrušilo právě ty stavy, které blokaci
++        zdůvodňují (docs/06 §6.7).
+         ``message_cs`` – český text upozornění.
+         ``source_key`` – klíč zdroje z ``docs/zdroje.md``.
+         ``species`` – druhy, pro které pravidlo platí, nebo ``None`` = všechny.
+         ``condition`` – podmínka (:data:`Condition`).
+ 
+     Chyby: ``TypeError`` pro nesprávné typy;
+-    :class:`~nutricalc.errors.ValidationError` pro neplatný kód, prázdný text
+-    nebo prázdnou množinu druhů.
++    :class:`~nutricalc.errors.ValidationError` pro neplatný kód, prázdný text,
++    prázdnou množinu druhů nebo úroveň ``BLOCKED`` u podmínky podle stavu živiny.
+     """
+ 
+     code: str
+@@ -145,35 +161,72 @@ class WarningRule:
+         if not isinstance(self.condition, _CONDITION_TYPES):
+             allowed = ", ".join(kind.__name__ for kind in _CONDITION_TYPES)
+             raise TypeError(f"Pravidlo {self.code}: podmínka musí být jedna z {allowed}.")
++        if isinstance(self.condition, NutrientStatusIn) and self.level == WarningLevel.BLOCKED:
++            raise ValidationError(
++                f"Pravidlo {self.code}: podmínka podle stavu živiny nesmí mít úroveň BLOCKED "
++                "(blokace by odstranila vyhodnocení, které ji zdůvodňuje). Použijte "
++                "EXPERT_REQUIRED."
++            )
++
++    def applies_to(self, species: Species) -> bool:
++        """``True``, když pravidlo platí pro druh (``species`` je ``None`` nebo ho obsahuje)."""
++        return self.species is None or species in self.species
++
++
++StatusPairs = tuple[tuple[str, frozenset[NutrientStatus]], ...]
++"""Stavy živin jako n-tice dvojic (kód, stavy) seřazená podle kódu."""
+ 
+ 
+ @dataclass(frozen=True, kw_only=True)
+ class RuleContext:
+-    """Data, nad kterými se pravidla vyhodnocují.
++    """Data, nad kterými se pravidla vyhodnocují (neměnná a hashovatelná).
+ 
+     ``species`` – druh zvířete. ``items`` – položky receptu (seřadí se podle
+     kódu suroviny). ``nutrient_statuses`` – kód živiny nebo poměru → všechny
+-    jeho stavy (prázdné mapování, když se požadavky nevyhodnocovaly).
++    jeho stavy; přijme mapování (nebo již normalizovanou n-tici dvojic) a
++    uloží se jako n-tice dvojic seřazená podle kódu (prázdná, když se
++    požadavky nevyhodnocovaly). Stavy jedné živiny vrací :meth:`statuses_for`.
++
++    Chyby: ``TypeError`` pro nesprávné typy;
++    :class:`~nutricalc.errors.InvalidInputError` pro neznámý druh nebo stav.
+     """
+ 
+     species: Species
+     items: tuple[RecipeItem, ...]
+-    nutrient_statuses: Mapping[str, frozenset[NutrientStatus]] = field(
+-        default_factory=lambda: MappingProxyType({})
+-    )
++    nutrient_statuses: StatusPairs = ()
+ 
+     def __post_init__(self) -> None:
+         object.__setattr__(self, "species", as_member(Species, self.species, "druh"))
+         object.__setattr__(self, "items", validate_items(self.items))
+-        if not isinstance(self.nutrient_statuses, Mapping):
++        source = self.nutrient_statuses
++        if isinstance(source, Mapping):
++            pairs: Iterable[object] = source.items()
++        elif isinstance(source, tuple):
++            pairs = source
++        else:
+             raise TypeError("nutrient_statuses musí být mapování kód → stavy.")
+-        statuses = {
+-            require_text(code, "Kód živiny"): frozenset(
+-                as_member(NutrientStatus, status, "stav živiny") for status in values
++        statuses: dict[str, frozenset[NutrientStatus]] = {}
++        for pair in pairs:
++            if not isinstance(pair, tuple) or len(pair) != 2:
++                raise TypeError("nutrient_statuses musí být mapování kód → stavy.")
++            code = require_text(pair[0], "Kód živiny")
++            if isinstance(pair[1], str) or not isinstance(pair[1], Iterable):
++                raise TypeError(f"Stavy živiny {code} musí být kolekce NutrientStatus.")
++            if code in statuses:
++                raise ValidationError(f"Stavy živiny {code} jsou uvedeny vícekrát.")
++            statuses[code] = frozenset(
++                as_member(NutrientStatus, status, "stav živiny") for status in pair[1]
+             )
+-            for code, values in self.nutrient_statuses.items()
+-        }
+-        object.__setattr__(self, "nutrient_statuses", MappingProxyType(statuses))
++        object.__setattr__(
++            self, "nutrient_statuses", tuple((code, statuses[code]) for code in sorted(statuses))
++        )
++
++    def statuses_for(self, nutrient_code: str) -> frozenset[NutrientStatus]:
++        """Všechny stavy živiny nebo poměru; prázdná množina, když se nevyhodnocovala."""
++        for code, statuses in self.nutrient_statuses:
++            if code == nutrient_code:
++                return statuses
++        return frozenset()
+ 
+ 
+ @dataclass(frozen=True, kw_only=True)
+@@ -211,7 +264,7 @@ def _matches(condition: Condition, context: RuleContext) -> tuple[bool, tuple[st
+             category = sum((entry.grams for entry in members), Decimal(0))
+             above = category > condition.share * total
+         return above, tuple(entry.ingredient_code for entry in members) if above else ()
+-    statuses = context.nutrient_statuses.get(condition.nutrient_code, frozenset())
++    statuses = context.statuses_for(condition.nutrient_code)
+     return bool(statuses & condition.statuses), ()
+ 
+ 
+@@ -246,7 +299,7 @@ def evaluate_rules(rules: Iterable[WarningRule], context: RuleContext) -> tuple[
+         if rule.code in seen:
+             raise ValidationError(f"Pravidlo {rule.code} je uvedeno vícekrát.")
+         seen.add(rule.code)
+-        if rule.species is not None and context.species not in rule.species:
++        if not rule.applies_to(context.species):
+             continue
+         matched, codes = _matches(rule.condition, context)
+         if matched:
+@@ -262,6 +315,51 @@ def evaluate_rules(rules: Iterable[WarningRule], context: RuleContext) -> tuple[
+     return tuple(sorted(warnings, key=_warning_key))
+ 
+ 
++def unhandled_safety_flags(
++    rules: Iterable[WarningRule], context: RuleContext
++) -> tuple[Flag, ...]:
++    """Bezpečnostní příznaky surovin, na které neodkazuje žádné pravidlo pro druh zvířete.
++
++    Pojistka proti neúplným datům pravidel: každý příznak ze
++    ``IngredientProfile.safety_flags`` některé suroviny dávky musí být
++    podmínkou :class:`IngredientFlagPresent` aspoň jednoho pravidla, které
++    platí pro druh zvířete (``species`` je ``None`` nebo druh obsahuje).
++    Jinak vznikne upozornění ``UNHANDLED_SAFETY_FLAG`` úrovně
++    ``EXPERT_REQUIRED`` (předmět = příznak, ve zprávě suroviny), které
++    vstupuje do bezpečnostní brány. Jádro význam příznaku nezná, proto
++    neblokuje; rozhodne odborník, případně doplní pravidlo do dat.
++
++    Vstup: pravidla (libovolné pořadí) a :class:`RuleContext`.
++    Výstup: upozornění seřazená podle :func:`~nutricalc.flags.sorted_flags`.
++    Chyby: ``TypeError`` pro jiné typy.
++    """
++    if not isinstance(context, RuleContext):
++        raise TypeError(f"unhandled_safety_flags očekává RuleContext, ne {type(context).__name__}.")
++    handled: set[str] = set()
++    for rule in rules:
++        if not isinstance(rule, WarningRule):
++            raise TypeError(f"Pravidlo musí být WarningRule, ne {type(rule).__name__}.")
++        if isinstance(rule.condition, IngredientFlagPresent) and rule.applies_to(context.species):
++            handled.add(rule.condition.flag)
++    present: dict[str, list[str]] = {}
++    for entry in context.items:
++        for flag in entry.profile.safety_flags:
++            present.setdefault(flag, []).append(entry.ingredient_code)
++    species = SPECIES_LABELS[context.species]
++    return sorted_flags(
++        Flag(
++            WarningLevel.EXPERT_REQUIRED,
++            "UNHANDLED_SAFETY_FLAG",
++            f"Bezpečnostní příznak „{flag}“ (suroviny: {', '.join(sorted(codes))}) nemá v datech "
++            f"pravidel žádné pravidlo pro druh {species}. Jádro význam příznaku nezná; dávku "
++            "musí posoudit odborník.",
++            subject=flag,
++        )
++        for flag, codes in present.items()
++        if flag not in handled
++    )
++
++
+ def sorted_rules(rules: Iterable[WarningRule]) -> tuple[WarningRule, ...]:
+     """Ověří pravidla a seřadí je podle kódu (kanonické pořadí pro snapshot).
+ 
+diff --git a/nutricalc/snapshot.py b/nutricalc/snapshot.py
+index 5edf5a1..0d73742 100644
+--- a/nutricalc/snapshot.py
++++ b/nutricalc/snapshot.py
+@@ -11,6 +11,17 @@ oblasti), proto hash nezávisí na pořadí zadání.
+ klíči, ``Decimal`` jako text přesně v uloženém tvaru, slovníkové hodnoty
+ jako text, n-tice jako seznamy v uloženém (kanonickém) pořadí, množiny jako
+ seznamy seřazené podle kanonického JSON prvků. Čísla ``float`` odmítá.
++Text čísla nezávisí na kontextu ``decimal`` volajícího
++(:func:`~nutricalc.decimal_ctx.decimal_text`).
++
++**Čísla „přesně jak jsou uložená“ (záměrné pravidlo, docs/07 §7.2):**
++``Decimal("300")`` a ``Decimal("300.0")`` se rovnají (``==`` i ``hash``),
++ale dávají jiný kanonický JSON, a tedy jiný ``input_hash``; exponent se
++promítne i do vypočtených hodnot (``3.100`` vs. ``3.1000``) a tím do
++``result_hash``. Aplikační vrstva proto musí snapshot ukládat a znovu
++načítat jako kanonický JSON (např. ``json.loads(..., parse_float=Decimal)``)
++a nikdy ho nesestavovat znovu z relačních sloupců s jiným počtem
++desetinných míst; jinak ``verify_analysis`` ohlásí neshodu.
+ """
+ 
+ import hashlib
+@@ -21,8 +32,8 @@ from decimal import Decimal
+ from enum import Enum
+ 
+ from nutricalc.composition import RecipeItem, validate_items
+-from nutricalc.decimal_ctx import to_decimal
+-from nutricalc.energy import BCS_MAX, BCS_MIN, EnergyFactor
++from nutricalc.decimal_ctx import decimal_text, to_decimal
++from nutricalc.energy import EnergyFactor, check_bcs
+ from nutricalc.errors import InvalidInputError, ValidationError
+ from nutricalc.gate import HealthConditionRef
+ from nutricalc.requirements import StandardProfile
+@@ -83,15 +94,7 @@ class AnimalSnapshot:
+         object.__setattr__(
+             self, "life_stage", as_member(LifeStage, self.life_stage, "životní fáze")
+         )
+-        if self.bcs is not None:
+-            if isinstance(self.bcs, bool) or not isinstance(self.bcs, int):
+-                raise TypeError(
+-                    f"BCS musí být celé číslo 1–9 nebo None, ne {type(self.bcs).__name__}."
+-                )
+-            if not BCS_MIN <= self.bcs <= BCS_MAX:
+-                raise InvalidInputError(
+-                    f"BCS {self.bcs} je mimo devítibodovou škálu {BCS_MIN}–{BCS_MAX}."
+-                )
++        check_bcs(self.bcs)
+         if not isinstance(self.neutered, bool):
+             raise TypeError(f"Údaj o kastraci musí být bool, ne {type(self.neutered).__name__}.")
+         if isinstance(self.health_conditions, (str, HealthConditionRef)) or not isinstance(
+@@ -225,8 +228,9 @@ def to_canonical(obj: object, *, exclude: frozenset[str] = frozenset()) -> objec
+     """Převede objekt jádra na strukturu pro JSON (bez ``float``).
+ 
+     Pravidla: ``None``, ``bool``, ``int`` a text beze změny; člen slovníku →
+-    jeho hodnota; ``Decimal`` → ``str`` (přesně v uloženém tvaru, např.
+-    ``"0.50"``); dataclass → objekt s poli (``exclude`` vynechá pole jen na
++    jeho hodnota; ``Decimal`` → text přesně v uloženém tvaru (např.
++    ``"0.50"``, ``"0E+2"``; :func:`~nutricalc.decimal_ctx.decimal_text`, tedy
++    nezávisle na kontextu volajícího); dataclass → objekt s poli (``exclude`` vynechá pole jen na
+     nejvyšší úrovni); pojmenovaná n-tice → objekt; n-tice a seznam → seznam
+     v uloženém pořadí; ``frozenset``/``set`` → seznam seřazený podle
+     kanonického JSON prvků; mapování → objekt s textovými klíči.
+@@ -243,7 +247,7 @@ def to_canonical(obj: object, *, exclude: frozenset[str] = frozenset()) -> objec
+     if isinstance(obj, Decimal):
+         if not obj.is_finite():
+             raise InvalidInputError(f"Hodnota {obj} není konečné číslo a nelze ji uložit.")
+-        return str(obj)
++        return decimal_text(obj)
+     if is_dataclass(obj) and not isinstance(obj, type):
+         return {
+             item.name: to_canonical(getattr(obj, item.name))
+diff --git a/nutricalc/units.py b/nutricalc/units.py
+index f9015f6..30b25c4 100644
+--- a/nutricalc/units.py
++++ b/nutricalc/units.py
+@@ -18,7 +18,7 @@ from decimal import Decimal
+ from types import MappingProxyType
+ from typing import Final
+ 
+-from nutricalc.decimal_ctx import calc_context, to_decimal
++from nutricalc.decimal_ctx import calc_context, positive_decimal, to_decimal
+ from nutricalc.errors import (
+     BasisMismatchError,
+     InvalidInputError,
+@@ -199,13 +199,6 @@ def _require(q: object, basis: Basis, function: str) -> Quantity:
+     return q
+ 
+ 
+-def _positive(value: Decimal | int | str, name: str) -> Decimal:
+-    number = to_decimal(value, name=name)
+-    if not number > 0:
+-        raise ValidationError(f"{name} musí být větší než 0 (zadáno {number}).")
+-    return number
+-
+-
+ def as_fed_to_dm(q: Quantity, water_g_per_100g: Decimal | int | str | None) -> Quantity:
+     """Převede hodnotu na 100 g původní hmoty na 100 g sušiny.
+ 
+@@ -241,10 +234,10 @@ def per_100g_as_fed_to_per_day(q: Quantity, grams: Decimal | int | str) -> Quant
+     (> 0). Výstup: veličina ``PER_DAY`` (``x · gramy / 100``).
+     Chyby: :class:`~nutricalc.errors.BasisMismatchError`,
+     :class:`~nutricalc.errors.UnitMismatchError` (poměr),
+-    :class:`~nutricalc.errors.ValidationError` pro gramy ≤ 0.
++    :class:`~nutricalc.errors.InvalidInputError` (podtřída ``ValidationError``) pro gramy ≤ 0.
+     """
+     checked = _require(q, Basis.PER_100G_AS_FED, "per_100g_as_fed_to_per_day")
+-    amount = _positive(grams, "Množství v gramech")
++    amount = positive_decimal(grams, "Množství v gramech")
+     with calc_context():
+         value = checked.value * (amount / _HUNDRED)
+     return Quantity(value, checked.unit, Basis.PER_DAY)
+@@ -259,10 +252,10 @@ def per_day_to_per_1000kcal(q: Quantity, me_kcal_per_day: Decimal | int | str) -
+     Výstup: veličina ``PER_1000KCAL_ME``.
+     Chyby: :class:`~nutricalc.errors.BasisMismatchError`,
+     :class:`~nutricalc.errors.UnitMismatchError` (poměr),
+-    :class:`~nutricalc.errors.ValidationError` pro ME ≤ 0.
++    :class:`~nutricalc.errors.InvalidInputError` (podtřída ``ValidationError``) pro ME ≤ 0.
+     """
+     checked = _require(q, Basis.PER_DAY, "per_day_to_per_1000kcal")
+-    energy = _positive(me_kcal_per_day, "ME dávky (kcal/den)")
++    energy = positive_decimal(me_kcal_per_day, "ME dávky (kcal/den)")
+     with calc_context():
+         value = checked.value * _THOUSAND / energy
+     return Quantity(value, checked.unit, Basis.PER_1000KCAL_ME)
+@@ -277,10 +270,10 @@ def per_1000kcal_to_per_day(q: Quantity, me_kcal_per_day: Decimal | int | str) -
+     Výstup: veličina ``PER_DAY``.
+     Chyby: :class:`~nutricalc.errors.BasisMismatchError`,
+     :class:`~nutricalc.errors.UnitMismatchError` (poměr),
+-    :class:`~nutricalc.errors.ValidationError` pro energii ≤ 0.
++    :class:`~nutricalc.errors.InvalidInputError` (podtřída ``ValidationError``) pro energii ≤ 0.
+     """
+     checked = _require(q, Basis.PER_1000KCAL_ME, "per_1000kcal_to_per_day")
+-    energy = _positive(me_kcal_per_day, "Energie (kcal/den)")
++    energy = positive_decimal(me_kcal_per_day, "Energie (kcal/den)")
+     with calc_context():
+         value = checked.value * energy / _THOUSAND
+     return Quantity(value, checked.unit, Basis.PER_DAY)
+diff --git a/nutricalc/vocab.py b/nutricalc/vocab.py
+index 0506f29..7f2ffeb 100644
+--- a/nutricalc/vocab.py
++++ b/nutricalc/vocab.py
+@@ -223,6 +223,16 @@ BASIS_LABELS: Final = MappingProxyType(
+ SPECIES_LABELS: Final = MappingProxyType({Species.DOG: "pes", Species.CAT: "kočka"})
+ """České názvy druhů pro zprávy."""
+ 
++PHYSIOLOGICAL_STATE_LABELS: Final = MappingProxyType(
++    {
++        PhysiologicalState.MAINTENANCE: "udržovací potřeba",
++        PhysiologicalState.GROWTH: "růst",
++        PhysiologicalState.GESTATION: "březost",
++        PhysiologicalState.LACTATION: "laktace",
++    }
++)
++"""České názvy fyziologických stavů pro zprávy."""
++
+ LIFE_STAGE_LABELS: Final = MappingProxyType(
+     {
+         LifeStage.ADULT_MAINTENANCE: "dospělý, udržovací potřeba",
