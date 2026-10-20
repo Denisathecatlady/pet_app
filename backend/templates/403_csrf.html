@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Formulář vypršel{% endblock %}
+{% block content %}
+<h1>Formulář nelze odeslat (chyba 403)</h1>
+<p>Bezpečnostní kontrola formuláře selhala. Obvykle stačí stránku znovu načíst a formulář odeslat
+znovu. Prohlížeč musí pro tento web povolit soubory cookie.</p>
+<p><a href="{% url 'core:home' %}">Zpět na úvodní stránku</a></p>
+{% endblock %}

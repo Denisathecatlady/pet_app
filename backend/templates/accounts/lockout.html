@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Přihlášení dočasně zablokováno{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Přihlášení je dočasně zablokováno</h1>
+  <div class="notice notice--error" role="alert">
+    <span class="notice__icon" aria-hidden="true">⛔</span>
+    <p>Po {{ failure_limit }} neúspěšných pokusech o přihlášení nebo ověření hesla jsme další
+    pokusy z tohoto zařízení pro tento účet na {{ cooloff_minutes }} minut zablokovali. Chráníme tak
+    účet před hádáním hesla.</p>
+  </div>
+  <p>Zkuste to znovu později. Pokud si heslo nepamatujete, použijte
+  <a href="{% url 'accounts:password_reset' %}">obnovu hesla</a>.</p>
+</div>
+{% endblock %}

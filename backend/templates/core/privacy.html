@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Ochrana osobních údajů (koncept){% endblock %}
+{% block content %}
+<article class="prose">
+  <h1>Ochrana osobních údajů</h1>
+  {% include "core/includes/draft_banner.html" %}
+
+  <h2>1. Správce osobních údajů</h2>
+  <p><span class="placeholder">[DOPLNÍ PRÁVNÍK: identifikace a kontakt správce, případně pověřence]</span></p>
+
+  <h2>2. Jaké údaje zpracováváme</h2>
+  <ul>
+    <li>Údaje o účtu: e-mail, jméno a příjmení (nepovinné), heslo uložené jen jako jednosměrný otisk.</li>
+    <li>Záznamy o přihlášení: čas, IP adresa a identifikace prohlížeče; neúspěšné pokusy
+      o přihlášení slouží k ochraně účtu před hádáním hesla.</li>
+    <li>Údaje o zvířatech, které zadáte: profil, hmotnost, kondice, zdravotní stavy a poznámky.</li>
+  </ul>
+
+  <h2>3. Účel a právní základ</h2>
+  <p><span class="placeholder">[DOPLNÍ PRÁVNÍK: účely zpracování a právní základ pro každý z nich]</span></p>
+
+  <h2>4. Doba uložení</h2>
+  <p><span class="placeholder">[DOPLNÍ PRÁVNÍK: doby uložení údajů o účtu, záznamů o přihlášení a záloh]</span></p>
+
+  <h2>5. Sdílení s veterinárním lékařem</h2>
+  <p>Údaje o zvířeti vidí jiný uživatel jen tehdy, když mu je výslovně zpřístupníte. Sdílet lze
+  jen s účtem, kterému správce přidělil roli veterinárního lékaře. Veterinář pak vidí profil
+  zvířete, měření, zdravotní stavy a váš e-mail a jméno; může zapsat měření a potvrdit cílovou
+  hmotnost. Sdílení můžete kdykoli zrušit a veterinář tím přístup ihned ztratí.</p>
+
+  <h2>6. Vaše práva</h2>
+  <ul>
+    <li>Své údaje si můžete kdykoli stáhnout ve strojově čitelném formátu (JSON) v nastavení účtu.</li>
+    <li>Účet můžete v nastavení smazat. Smažou se i všechna data, která jste zadali.</li>
+    <li><span class="placeholder">[DOPLNÍ PRÁVNÍK: další práva, postup uplatnění a právo podat stížnost u ÚOOÚ]</span></li>
+  </ul>
+</article>
+{% endblock %}

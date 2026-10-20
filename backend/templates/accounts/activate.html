@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Aktivace účtu{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Aktivace účtu</h1>
+  <p>Aktivujete účet <strong>{{ activation_email }}</strong>.</p>
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit" class="button">Aktivovat účet</button>
+  </form>
+</div>
+{% endblock %}

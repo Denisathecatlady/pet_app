@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Registrace{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Registrace</h1>
+  <p>Po odeslání formuláře vám pošleme e-mail s odkazem pro aktivaci účtu.</p>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% include "core/includes/form_fields.html" %}
+    <button type="submit" class="button">Založit účet</button>
+  </form>
+  <p>Už účet máte? <a href="{% url 'accounts:login' %}">Přihlaste se</a>.
+  Nepřišel aktivační e-mail? <a href="{% url 'accounts:resend_activation' %}">Poslat znovu</a>.</p>
+</div>
+{% endblock %}

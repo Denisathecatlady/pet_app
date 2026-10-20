@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Neplatný odkaz{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Aktivační odkaz je neplatný</h1>
+  <div class="notice notice--error" role="alert">
+    <span class="notice__icon" aria-hidden="true">⛔</span>
+    <p>Odkaz už byl použit, vypršel nebo není úplný.</p>
+  </div>
+  <p>Pokud je účet už aktivní, <a href="{% url 'accounts:login' %}">přihlaste se</a>.
+  Jinak si <a href="{% url 'accounts:resend_activation' %}">nechte poslat nový aktivační odkaz</a>.</p>
+</div>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% autoescape off %}Dobrý den,
+
+někdo (pravděpodobně vy) založil v aplikaci BARF Nutri účet s touto e-mailovou adresou.
+Účet aktivujete otevřením tohoto odkazu a potvrzením tlačítkem:
+
+{{ activation_url }}
+
+Odkaz platí {{ valid_hours }} hodin a lze ho použít jen jednou.
+
+Pokud jste účet nezakládali, tento e-mail ignorujte. Bez aktivace se k účtu nikdo nepřihlásí.
+
+BARF Nutri
+Aplikace nenahrazuje veterinární péči.
+{% endautoescape %}

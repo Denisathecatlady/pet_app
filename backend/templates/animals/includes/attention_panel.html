@@ -1,0 +1,23 @@
+{% load status %}
+<section class="notice notice--{{ css }} attention" aria-labelledby="attention-title">
+  <div>
+    <h2 id="attention-title" class="notice__title">Upozornění</h2>
+    <p>{% include "core/includes/status_badge.html" with text="" %}</p>
+    {% if reasons %}
+      <ul class="reasons">
+        {% for reason in reasons %}
+          <li>{% status_badge reason.level %} {{ reason.text }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>V zadaných údajích aplikace nenašla nic, na co by měla upozornit. Neznamená to, že je
+      zvíře zdravé nebo že je jeho strava vhodná.</p>
+    {% endif %}
+    {% if level == "BLOCKED" or level == "EXPERT_REQUIRED" %}
+      <p><strong>Co dělat dál:</strong> poraďte se s veterinárním lékařem, nejlépe
+      s veterinárním nutričním specialistou, a vezměte s sebou záznamy z této stránky.</p>
+    {% endif %}
+    <p class="notice__footnote">Upozornění vychází jen z údajů zadaných v aplikaci. Není úplným
+    posouzením zdravotního stavu ani výživy a nenahrazuje veterinární vyšetření.</p>
+  </div>
+</section>

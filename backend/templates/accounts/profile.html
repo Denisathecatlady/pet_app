@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Můj účet{% endblock %}
+{% block content %}
+<h1>Můj účet</h1>
+<div class="columns">
+  <section aria-labelledby="profile-title">
+    <h2 id="profile-title">Profil</h2>
+    <dl class="facts">
+      <div><dt>E-mail</dt><dd>{{ user.email }}</dd></div>
+      <div><dt>Role</dt><dd>{{ user.role_labels|join:", "|default:"žádná" }}</dd></div>
+      <div><dt>Účet založen</dt><dd>{{ user.date_joined|date:"j. n. Y" }}</dd></div>
+    </dl>
+    <p class="hint">E-mail slouží k přihlášení a zatím ho nelze změnit.</p>
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {% include "core/includes/form_fields.html" %}
+      <button type="submit" class="button">Uložit</button>
+    </form>
+  </section>
+
+  <section aria-labelledby="security-title">
+    <h2 id="security-title">Zabezpečení</h2>
+    <p><a href="{% url 'accounts:password_change' %}">Změnit heslo</a></p>
+
+    <h2 id="data-title">Vaše data</h2>
+    <p>Můžete si stáhnout všechny osobní údaje, které o vás aplikace vede, ve formátu JSON.</p>
+    <p><a class="button button--secondary" href="{% url 'accounts:export' %}" download>Stáhnout moje data (JSON)</a></p>
+    <p>Smazáním účtu nevratně odstraníte účet i všechna data, která jste zadali.</p>
+    <p><a class="button button--danger" href="{% url 'accounts:delete' %}">Smazat účet…</a></p>
+  </section>
+</div>
+{% endblock %}

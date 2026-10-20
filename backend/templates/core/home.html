@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% load status %}
+{% block title %}Evidence zdraví a kondice psů a koček{% endblock %}
+{% block content %}
+<section class="hero" aria-labelledby="hero-title">
+  <h1 id="hero-title">Evidence zdraví a kondice psů a koček</h1>
+  <p class="lead">
+    BARF Nutri pomáhá majitelům psů a koček vést přehled o hmotnosti, tělesné kondici
+    a zdravotním stavu zvířete a sdílet ho s veterinárním lékařem. Nástroj pro nutriční
+    rozbor syrových a domácích dávek připravujeme.
+  </p>
+  <p class="actions">
+    <a class="button" href="{% url 'accounts:register' %}">Založit účet</a>
+    <a class="button button--secondary" href="{% url 'accounts:login' %}">Přihlásit se</a>
+  </p>
+</section>
+
+<div class="columns">
+  <section aria-labelledby="does-title">
+    <h2 id="does-title">Co aplikace dělá</h2>
+    <ul class="checklist">
+      <li>Vede profily vašich psů a koček.</li>
+      <li>Zaznamenává hmotnost, skóre tělesné kondice (BCS) a svalové kondice (MCS) v čase.</li>
+      <li>Eviduje zdravotní stavy a u rizikových stavů upozorní, že je potřeba odborné posouzení.</li>
+      <li>Umožní sdílet záznamy s vaším veterinárním lékařem; sdílení můžete kdykoli zrušit.</li>
+      <li>Umožní stáhnout všechna vaše data a smazat účet.</li>
+    </ul>
+    <p>
+      Nutriční rozbor dávek (obsah živin porovnaný s verzovaným standardem a se zdrojem
+      každého čísla) je ve vývoji a zatím není k dispozici.
+    </p>
+  </section>
+
+  <section aria-labelledby="doesnt-title">
+    <h2 id="doesnt-title">Co aplikace není</h2>
+    <ul class="crosslist">
+      <li><strong>Náhrada veterinárního vyšetření.</strong> Posouzení výživy patří k vyšetření zvířete veterinárním lékařem.</li>
+      <li><strong>Generátor léčebných diet.</strong> U onemocnění ledvin, jater, pankreatitidy, diabetu nebo močových kamenů rozhoduje veterinář.</li>
+      <li><strong>Důkaz bezpečnosti syrové stravy.</strong> Syrové maso nese mikrobiologická a parazitologická rizika pro zvíře i lidi v domácnosti.</li>
+      <li><strong>Certifikace krmiva.</strong> Aplikace nepotvrzuje, že je dávka „kompletní a vyvážená“.</li>
+      <li><strong>Nástroj pro růst, březost a laktaci.</strong> Pro štěňata, koťata a březí nebo kojící samice je potřeba individuální plán od odborníka.</li>
+    </ul>
+  </section>
+</div>
+
+<section aria-labelledby="levels-title">
+  <h2 id="levels-title">Jak aplikace upozorňuje</h2>
+  <p>Každé upozornění má ikonu, text i barvu, aby bylo srozumitelné i bez rozlišení barev.</p>
+  <dl class="levels">
+    <div><dt>{% status_badge "INFO" %}</dt><dd>Doporučení pro informaci. Ničemu nebrání.</dd></div>
+    <div><dt>{% status_badge "NUTRITION_WARNING" %}</dt><dd>Upozornění, které je dobré prověřit.</dd></div>
+    <div><dt>{% status_badge "EXPERT_REQUIRED" %}</dt><dd>Situace, kterou má posoudit veterinární lékař nebo nutriční specialista.</dd></div>
+    <div><dt>{% status_badge "BLOCKED" %}</dt><dd>Aplikace výsledek nenabídne a vysvětlí proč a na koho se obrátit.</dd></div>
+  </dl>
+</section>
+{% endblock %}

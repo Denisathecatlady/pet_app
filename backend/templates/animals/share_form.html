@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Sdílet s veterinářem: {{ animal.name }}{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Sdílet s veterinářem: {{ animal.name }}</h1>
+  <p>Veterinární lékař, se kterým zvíře sdílíte, uvidí jeho profil, měření a zdravotní stavy
+  a váš e-mail. Může zapsat nové měření a potvrdit cílovou hmotnost. Upravovat profil,
+  mazat záznamy ani sdílet dál nemůže.</p>
+  <p>Sdílení můžete kdykoli zrušit na stránce zvířete; veterinář tím přístup ihned ztratí.</p>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% include "core/includes/form_fields.html" %}
+    <p class="actions">
+      <button type="submit" class="button">Sdílet</button>
+      <a class="button button--secondary" href="{{ animal.get_absolute_url }}">Zrušit</a>
+    </p>
+  </form>
+</div>
+{% endblock %}

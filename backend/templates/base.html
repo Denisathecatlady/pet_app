@@ -1,0 +1,60 @@
+{% load static %}<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}BARF Nutri{% endblock %} – BARF Nutri</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+  <a class="skip-link" href="#obsah">Přeskočit na obsah</a>
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <a class="brand" href="{% url 'core:home' %}">BARF Nutri</a>
+      {% with current=request.resolver_match.view_name %}
+      <nav class="site-nav" aria-label="Hlavní navigace">
+        <ul>
+          {% if user.is_authenticated %}
+            <li><a href="{% url 'core:dashboard' %}"{% if current == 'core:dashboard' %} aria-current="page"{% endif %}>Přehled</a></li>
+            <li><a href="{% url 'accounts:profile' %}"{% if current == 'accounts:profile' %} aria-current="page"{% endif %}>Můj účet</a></li>
+            {% if user.is_staff %}<li><a href="{% url 'admin:index' %}">Administrace</a></li>{% endif %}
+            <li>
+              <form class="inline-form" method="post" action="{% url 'accounts:logout' %}">
+                {% csrf_token %}
+                <button type="submit" class="link-button">Odhlásit se</button>
+              </form>
+            </li>
+          {% else %}
+            <li><a href="{% url 'accounts:login' %}"{% if current == 'accounts:login' %} aria-current="page"{% endif %}>Přihlásit se</a></li>
+            <li><a href="{% url 'accounts:register' %}"{% if current == 'accounts:register' %} aria-current="page"{% endif %}>Registrace</a></li>
+          {% endif %}
+        </ul>
+      </nav>
+      {% endwith %}
+    </div>
+  </header>
+
+  <main id="obsah" class="container site-main" tabindex="-1">
+    {% include "core/includes/messages.html" %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p class="vet-notice">
+        <span aria-hidden="true">🩺</span>
+        <strong>Aplikace nenahrazuje veterinární péči.</strong>
+        Při zdravotních potížích, změně hmotnosti nebo kondice a před změnou stravy se poraďte
+        s veterinárním lékařem.
+      </p>
+      <nav aria-label="Právní informace">
+        <ul class="footer-links">
+          <li><a href="{% url 'core:terms' %}">Podmínky užití</a></li>
+          <li><a href="{% url 'core:privacy' %}">Ochrana osobních údajů</a></li>
+        </ul>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Zkontrolujte e-mail{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Zkontrolujte svůj e-mail</h1>
+  <p>Na zadanou adresu jsme poslali e-mail s dalším postupem. Pro dokončení registrace klikněte
+  na odkaz v e-mailu. Odkaz platí {{ valid_hours }} hodin.</p>
+  <p>E-mail nepřišel? Zkontrolujte složku nevyžádané pošty, nebo si
+  <a href="{% url 'accounts:resend_activation' %}">nechte aktivační odkaz poslat znovu</a>.</p>
+</div>
+{% endblock %}

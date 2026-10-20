@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Nové měření: {{ animal.name }}{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Nové měření: {{ animal.name }}</h1>
+  <p>Měření se uloží jako posouzené: <strong>{{ assessor }}</strong>.</p>
+  <p class="hint">Pole označená hvězdičkou jsou povinná.</p>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% include "core/includes/form_fields.html" %}
+    <p class="actions">
+      <button type="submit" class="button">Uložit měření</button>
+      <a class="button button--secondary" href="{{ animal.get_absolute_url }}">Zrušit</a>
+    </p>
+  </form>
+</div>
+{% endblock %}

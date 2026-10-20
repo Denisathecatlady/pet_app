@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Stránka nenalezena{% endblock %}
+{% block content %}
+<h1>Stránka nenalezena (chyba 404)</h1>
+<p>Požadovaná stránka neexistuje, byla přesunuta nebo k ní nemáte přístup.</p>
+<p><a href="{% url 'core:home' %}">Zpět na úvodní stránku</a></p>
+{% endblock %}

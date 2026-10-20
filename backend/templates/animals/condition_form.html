@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{% if item %}Upravit stav: {{ item.condition.name_cs }}{% else %}Nový zdravotní stav{% endif %} – {{ animal.name }}{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>{% if item %}Upravit stav: {{ item.condition.name_cs }}{% else %}Nový zdravotní stav{% endif %}</h1>
+  <p>Zvíře: <a href="{{ animal.get_absolute_url }}">{{ animal.name }}</a></p>
+  <div class="notice notice--expert-required" role="note">
+    <span class="notice__icon" aria-hidden="true">🩺</span>
+    <p>U zdravotních stavů ze seznamu má o výživě rozhodnout veterinární lékař. Aplikace stav
+    eviduje a upozorní na něj; léčebnou dietu nenavrhuje.</p>
+  </div>
+  {% if not item and not form.fields.condition.queryset.exists %}
+    <p>U zvířete jsou zadané všechny zdravotní stavy ze seznamu.</p>
+  {% else %}
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {% include "core/includes/form_fields.html" %}
+      <p class="actions">
+        <button type="submit" class="button">{% if item %}Uložit změny{% else %}Přidat stav{% endif %}</button>
+        <a class="button button--secondary" href="{{ animal.get_absolute_url }}">Zrušit</a>
+      </p>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

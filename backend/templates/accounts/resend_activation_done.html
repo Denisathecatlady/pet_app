@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Zkontrolujte e-mail{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Zkontrolujte svůj e-mail</h1>
+  <p>Pokud k zadané adrese existuje účet, který čeká na aktivaci, poslali jsme na ni nový
+  aktivační odkaz. Předchozí odkazy zůstávají platné až do vypršení.</p>
+  <p><a href="{% url 'accounts:login' %}">Přejít na přihlášení</a></p>
+</div>
+{% endblock %}

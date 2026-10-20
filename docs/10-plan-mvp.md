@@ -27,6 +27,11 @@ Každá další funkce stojí na jádře, kterému už lze věřit.
 > (`SYN_*`, `TESTSTD`, golden příklady docs/05 §5.8 a docs/06 §6.10). Čeká na schválená data M1
 > a na odbornou validaci M3 🩺.
 
+> **Stav M4/M5 (část) 🛠:** webová aplikace má účty a role, GDPR export a výmaz, profily zvířat,
+> sledování hmotnosti, BCS a MCS (tabulka), zdravotní stavy, sdílení s veterinářem, potvrzení cílové
+> hmotnosti a přehled s úrovní upozornění ([12](12-ucty-a-zvirata.md)). Kalkulačka, recepty, rozbor
+> a PDF (zbytek M4 a M5) jsou na žádost zadavatele odložené a čekají na M1 a M3.
+
 Celkem do uzavřené bety (M1–M5): zhruba **12–17 týdnů** práce plus čas na revize specialisty. Největší
 nejistota je v datech (M1) a v dostupnosti specialisty (M3), ne v programování.
 

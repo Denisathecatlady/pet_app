@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Smazání účtu{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Smazání účtu</h1>
+  <div class="notice notice--warning" role="note">
+    <span class="notice__icon" aria-hidden="true">⚠</span>
+    <div>
+      <p><strong>Smazání je nevratné.</strong> Odstraní se váš účet, všechna zvířata a záznamy,
+      které jste zadali, i záznamy o vašich přihlášeních. Obnovit je nepůjde.</p>
+      {% if user.is_vet %}
+        <p>Jako veterinární lékař ztratíte přístup ke všem zvířatům, která s vámi majitelé
+        sdílejí. Měření, která jste u nich zapsali, majitelům zůstanou bez vazby na váš účet
+        a cílové hmotnosti, které jste potvrdili, budou znovu jen orientační.</p>
+      {% endif %}
+      <p>Pokud si chcete data ponechat, nejdříve si je
+      <a href="{% url 'accounts:export' %}" download>stáhněte (JSON)</a>.</p>
+    </div>
+  </div>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% include "core/includes/form_fields.html" %}
+    <button type="submit" class="button button--danger">Trvale smazat účet</button>
+    <a class="button button--secondary" href="{% url 'accounts:profile' %}">Zrušit</a>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% load animal_tags status l10n %}
+{% block title %}{{ animal.name }}{% endblock %}
+{% block content %}
+<nav aria-label="Drobečková navigace" class="breadcrumbs">
+  <a href="{% url 'core:dashboard' %}">Přehled</a> <span aria-hidden="true">›</span> <span aria-current="page">{{ animal.name }}</span>
+</nav>
+
+<h1>{{ animal.name }}</h1>
+<p class="lead">{{ animal.get_species_display|capfirst }}, {{ animal.get_sex_display }}{% if animal.neutered %}, kastrované zvíře{% endif %} · věk: {{ age }}</p>
+{% if not access.is_owner %}
+  <p>Zvíře s vámi sdílí majitel {% if animal.owner.get_full_name %}{{ animal.owner.get_full_name }}, {% endif %}{{ animal.owner.email }}.</p>
+{% endif %}
+
+<p class="actions">
+  {% if access.can.ADD_MEASUREMENT %}<a class="button" href="{% url 'animals:measurement_add' animal.uuid %}">Zapsat měření</a>{% endif %}
+  {% if access.can.EDIT %}<a class="button button--secondary" href="{% url 'animals:edit' animal.uuid %}">Upravit profil</a>{% endif %}
+</p>
+
+{% attention_panel attention %}
+
+<div class="columns">
+  <section aria-labelledby="profile-title">
+    <h2 id="profile-title">Profil</h2>
+    <dl class="facts">
+      <div><dt>Druh</dt><dd>{{ animal.get_species_display }}</dd></div>
+      <div><dt>Plemeno</dt><dd>{{ animal.breed|default:"nezadáno" }}</dd></div>
+      {% if animal.species == "DOG" %}<div><dt>Velikost</dt><dd>{{ animal.get_size_category_display|default:"nezadáno" }}</dd></div>{% endif %}
+      <div><dt>Pohlaví</dt><dd>{{ animal.get_sex_display }}</dd></div>
+      <div><dt>Kastrace</dt><dd>{{ animal.neutered|yesno:"ano,ne" }}</dd></div>
+      <div><dt>Datum narození</dt><dd>{% if animal.birth_date %}{{ animal.birth_date|short }}{% if animal.birth_date_estimated %} (odhad){% endif %}{% else %}nezadáno{% endif %}</dd></div>
+      <div><dt>Fyziologický stav</dt><dd>{{ animal.get_physiological_state_display }}</dd></div>
+      <div><dt>Aktivita</dt><dd>{{ animal.get_activity_level_display }}</dd></div>
+      <div><dt>Očekávaná hmotnost v dospělosti</dt><dd>{{ animal.expected_adult_weight_kg|kg|default:"nezadáno" }}</dd></div>
+      <div><dt>Alergie a nesnášenlivosti</dt><dd>{{ animal.allergies|join:", "|default:"nezadáno" }}</dd></div>
+    </dl>
+    <h3>Současné krmení</h3>
+    <p>{{ animal.current_feeding|linebreaksbr|default:"nezadáno" }}</p>
+    <h3>Poznámky</h3>
+    <p>{{ animal.notes|linebreaksbr|default:"nezadáno" }}</p>
+  </section>
+
+  <section aria-labelledby="target-title">
+    <h2 id="target-title">Cílová hmotnost</h2>
+    {% if animal.target_weight_kg %}
+      <p class="target-weight">
+        <strong>{{ animal.target_weight_kg|kg }}</strong>
+        {% if animal.target_weight_confirmed %}
+          {% include "core/includes/status_badge.html" with css="success" icon="✓" label="potvrzeno veterinářem" text="" %}
+        {% else %}
+          {% include "core/includes/status_badge.html" with css="info" icon="ⓘ" label="orientační" text="" %}
+        {% endif %}
+      </p>
+      {% if animal.target_weight_confirmed %}
+        <p>Potvrdil(a) {{ animal.target_weight_confirmed_by.email|default:"veterinární lékař" }} dne {{ animal.target_weight_confirmed_at|date:"j. n. Y" }}.</p>
+      {% else %}
+        <p>Zadaná cílová hmotnost je orientační. Ideální hmotnost by měl potvrdit veterinář podle BCS.</p>
+        {% if access.can.CONFIRM_TARGET_WEIGHT %}
+          <form method="post" action="{% url 'animals:target_weight_confirm' animal.uuid %}">
+            {% csrf_token %}
+            <input type="hidden" name="target_weight_kg" value="{{ animal.target_weight_kg|unlocalize }}">
+            <p class="hint">Potvrzením stvrzujete, že jste cílovou hmotnost {{ animal.target_weight_kg|kg }} posoudil(a) podle BCS. Potvrzení se zobrazí majiteli s vaším e-mailem.</p>
+            <button type="submit" class="button">Potvrdit cílovou hmotnost {{ animal.target_weight_kg|kg }}</button>
+          </form>
+        {% endif %}
+      {% endif %}
+    {% else %}
+      <p>Cílová hmotnost není zadaná.</p>
+    {% endif %}
+  </section>
+</div>
+
+<section aria-labelledby="measurements-title">
+  <h2 id="measurements-title">Hmotnost a kondice</h2>
+  {% if measurements %}
+    <div class="table-wrap" role="region" aria-labelledby="measurements-title" tabindex="0">
+      <table class="data">
+        <caption class="visually-hidden">Měření hmotnosti, BCS a MCS, nejnovější nahoře</caption>
+        <thead>
+          <tr>
+            <th scope="col">Datum</th>
+            <th scope="col">Hmotnost</th>
+            <th scope="col">BCS</th>
+            <th scope="col">Svalová kondice (MCS)</th>
+            <th scope="col">Posoudil</th>
+            <th scope="col">Poznámka</th>
+            {% if access.can.EDIT %}<th scope="col"><span class="visually-hidden">Akce</span></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for measurement in measurements %}
+            <tr>
+              <td>{{ measurement.measured_on|short }}</td>
+              <td class="num">{{ measurement.weight_kg|kg }}</td>
+              <td>{% if measurement.bcs %}{{ measurement.bcs }}/9{% else %}nezadáno{% endif %}</td>
+              <td>{{ measurement.get_mcs_display|default:"nezadáno" }}</td>
+              <td>{{ measurement.get_assessed_by_display }}{% if measurement.assessed_by == "VET" and measurement.created_by %} ({{ measurement.created_by.email }}){% endif %}</td>
+              <td>{{ measurement.note|linebreaksbr }}</td>
+              {% if access.can.EDIT %}
+                <td><a href="{% url 'animals:measurement_delete' animal.uuid measurement.uuid %}">Smazat<span class="visually-hidden"> měření ze dne {{ measurement.measured_on|short }}</span></a></td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p>Zatím žádné měření.</p>
+  {% endif %}
+</section>
+
+<section aria-labelledby="conditions-title">
+  <h2 id="conditions-title">Zdravotní stavy</h2>
+  {% if conditions %}
+    <ul class="item-list">
+      {% for item in conditions %}
+        <li class="item">
+          <h3>{{ item.condition.name_cs }}</h3>
+          <p>{% status_badge item.condition.mode %}</p>
+          <dl class="facts">
+            <div><dt>Diagnostikoval veterinář</dt><dd>{{ item.diagnosed_by_vet|yesno:"ano,ne" }}</dd></div>
+            <div><dt>Od kdy</dt><dd>{{ item.since|short|default:"nezadáno" }}</dd></div>
+            {% if item.vet_diet_restrictions %}
+              <div><dt>Omezení stravy podle veterináře</dt><dd>{{ item.vet_diet_restrictions|linebreaksbr }}<br><span class="hint">Aplikace text jen zobrazuje, nevyhodnocuje ho.</span></dd></div>
+            {% endif %}
+            {% if item.note %}<div><dt>Poznámka</dt><dd>{{ item.note|linebreaksbr }}</dd></div>{% endif %}
+          </dl>
+          {% if access.can.MANAGE_CONDITIONS %}
+            <p class="actions">
+              <a href="{% url 'animals:condition_edit' animal.uuid item.condition.code %}">Upravit<span class="visually-hidden"> stav {{ item.condition.name_cs }}</span></a>
+              <a href="{% url 'animals:condition_remove' animal.uuid item.condition.code %}">Odebrat<span class="visually-hidden"> stav {{ item.condition.name_cs }}</span></a>
+            </p>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>Žádný zdravotní stav není zadaný.</p>
+  {% endif %}
+  {% if access.can.MANAGE_CONDITIONS %}
+    <p><a class="button button--secondary" href="{% url 'animals:condition_add' animal.uuid %}">Přidat zdravotní stav</a></p>
+  {% endif %}
+</section>
+
+{% if access.can.MANAGE_SHARES %}
+  <section aria-labelledby="shares-title">
+    <h2 id="shares-title">Sdílení s veterinářem</h2>
+    <p>Veterinář, se kterým zvíře sdílíte, vidí profil, měření a zdravotní stavy, může zapsat
+    měření a potvrdit cílovou hmotnost. Upravovat ani mazat nemůže.</p>
+    {% if shares %}
+      <ul>
+        {% for share in shares %}
+          <li>
+            {{ share.vet.email }}, sdíleno od {{ share.created_at|date:"j. n. Y" }}
+            <form class="inline-form" method="post" action="{% url 'animals:share_revoke' animal.uuid share.uuid %}">
+              {% csrf_token %}
+              <button type="submit" class="link-button">Zrušit sdílení<span class="visually-hidden"> s {{ share.vet.email }}</span></button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>Zvíře zatím s nikým nesdílíte.</p>
+    {% endif %}
+    <p><a class="button button--secondary" href="{% url 'animals:share_add' animal.uuid %}">Sdílet s veterinářem</a></p>
+  </section>
+{% endif %}
+
+{% if access.can.DELETE %}
+  <section aria-labelledby="danger-title">
+    <h2 id="danger-title">Smazání</h2>
+    <p><a class="button button--danger" href="{% url 'animals:delete' animal.uuid %}">Smazat zvíře…</a></p>
+  </section>
+{% endif %}
+{% endblock %}

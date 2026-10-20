@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>{{ title }}</h1>
+  <div class="notice notice--warning" role="note">
+    <span class="notice__icon" aria-hidden="true">⚠</span>
+    <div>{% for line in details %}<p>{{ line }}</p>{% endfor %}</div>
+  </div>
+  <form method="post">
+    {% csrf_token %}
+    <p class="actions">
+      <button type="submit" class="button button--danger">{{ button }}</button>
+      <a class="button button--secondary" href="{{ animal.get_absolute_url }}">Zrušit</a>
+    </p>
+  </form>
+</div>
+{% endblock %}

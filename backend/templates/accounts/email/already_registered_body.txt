@@ -1,0 +1,12 @@
+{% autoescape off %}Dobrý den,
+
+někdo se pokusil založit v aplikaci BARF Nutri nový účet s vaší e-mailovou adresou. Účet
+s touto adresou už ale existuje, proto nový nevznikl a na vašem účtu se nic nezměnilo.
+
+Pokud jste to byli vy, přihlaste se: {{ login_url }}
+Pokud si nepamatujete heslo, nastavte si nové: {{ password_reset_url }}
+
+Pokud jste to nebyli vy, tento e-mail ignorujte.
+
+BARF Nutri
+{% endautoescape %}

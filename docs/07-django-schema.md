@@ -2,6 +2,11 @@
 
 > Celá kapitola je 🛠 pracovní návrh (technická rozhodnutí, ne odborná tvrzení). Kde se schéma opírá
 > o odbornou logiku, odkazuje na příslušnou kapitolu.
+>
+> **Stav implementace 🛠:** hotové jsou aplikace `accounts` (účty, role, GDPR) a `animals` (modely
+> `Animal`, `BodyMeasurement`, `HealthCondition`, `AnimalHealthCondition`, `AnimalShare` s historií
+> změn, **bez nutričních vazeb**), viz [12](12-ucty-a-zvirata.md). `catalog`, `standards`, `recipes`,
+> `analyses`, REST API a HTMX zatím nejsou.
 
 ## 7.1 Architektura ve vrstvách
 

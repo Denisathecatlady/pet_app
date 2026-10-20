@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{% if animal %}Upravit: {{ animal.name }}{% else %}Nové zvíře{% endif %}{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>{% if animal %}Upravit: {{ animal.name }}{% else %}Nové zvíře{% endif %}</h1>
+  {% if animal.target_weight_confirmed %}
+    <div class="notice notice--info" role="note">
+      <span class="notice__icon" aria-hidden="true">ⓘ</span>
+      <p>Cílovou hmotnost potvrdil veterinář. Pokud ji změníte, potvrzení se zruší a hodnota
+      bude znovu jen orientační.</p>
+    </div>
+  {% endif %}
+  <p class="hint">Pole označená hvězdičkou jsou povinná.</p>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% include "core/includes/form_fields.html" %}
+    <p class="actions">
+      <button type="submit" class="button">{% if animal %}Uložit změny{% else %}Přidat zvíře{% endif %}</button>
+      <a class="button button--secondary" href="{% if animal %}{{ animal.get_absolute_url }}{% else %}{% url 'core:dashboard' %}{% endif %}">Zrušit</a>
+    </p>
+  </form>
+</div>
+{% endblock %}

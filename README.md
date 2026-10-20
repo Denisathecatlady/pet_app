@@ -5,9 +5,11 @@ Nepočítá jen poměr svalovina : kosti : orgány. Počítá skutečný obsah �
 verzovaným standardem (výchozí FEDIAF 2025) a u každého čísla ukáže zdroj a spolehlivost.
 
 > **Stav projektu: Fáze 1 – analýza a odborné základy (dokončena, čeká na odbornou revizi).**
-> Aplikace (Django, UI) zatím nevznikla. Existuje pomocný nástroj `refdata` pro kontrolu přepisu
-> tabulek standardu (milník M1) a výpočetní jádro `nutricalc` (milník M2: od energie a součtů živin
-> po vyhodnocení proti standardu a souhrn, ověřené jen na syntetických datech), viz [Nástroje](#nástroje).
+> Existuje pomocný nástroj `refdata` pro kontrolu přepisu tabulek standardu (milník M1), výpočetní
+> jádro `nutricalc` (milník M2: od energie a součtů živin po vyhodnocení proti standardu a souhrn,
+> ověřené jen na syntetických datech), viz [Nástroje](#nástroje), a webová aplikace v Djangu
+> (účty, role, GDPR, profily zvířat, hmotnost, BCS a MCS, zdravotní stavy, sdílení s veterinářem),
+> viz [Webová aplikace](#webová-aplikace). Kalkulačka a nutriční rozbor ve webové aplikaci zatím nejsou.
 
 ## Dokumentace Fáze 1
 
@@ -24,6 +26,7 @@ verzovaným standardem (výchozí FEDIAF 2025) a u každého čísla ukáže zdr
 | 9 | [Rizika](docs/09-rizika.md) | Odborná, softwarová a právní rizika, bezpečnostní brána |
 | 10 | [Plán MVP](docs/10-plan-mvp.md) | Milníky, odhady, **doporučení nejmenší verze (MVP-0)** |
 | 11 | [Testovací plán](docs/11-testovaci-plan.md) | Katalog testů, golden příklady, odborná validace |
+| 12 | [Účty a zvířata](docs/12-ucty-a-zvirata.md) | Webová aplikace: role, oprávnění, upozornění u zvířat, GDPR, otevřené body |
 | – | [Registr zdrojů](docs/zdroje.md) | Všechny citace s úrovní ověření |
 
 Datové šablony: [`data/reference/nutrients.csv`](data/reference/nutrients.csv) (katalog 52 položek:
@@ -80,6 +83,71 @@ Testy (vývojové závislosti `pytest` a `hypothesis` podle `pyproject.toml`): `
 (jen jádro: `.venv/bin/python -m pytest -q tests/nutricalc`). Testy jádra obsahují referenční příklady
 docs/05 §5.8 a docs/06 §6.10, vlastnostní testy (nezávislost na pořadí, chybějící data ≠ 0) a statické
 kontroly zdrojů (žádný `float`, I/O, čas ani náhoda).
+
+## Webová aplikace
+
+Adresář [`backend/`](backend/) obsahuje Django 5.2 LTS projekt (`config`) s aplikacemi:
+
+- `core`: rozvržení, úvodní stránka, přehled (dashboard), koncepty právních stránek, chybové
+  stránky, styly a odznaky úrovní upozornění podle docs/08 §8.6;
+- `accounts`: uživatel přihlašovaný e-mailem, role jako skupiny `owner`, `vet`, `data_curator`,
+  `nutrition_reviewer`, registrace s aktivací e-mailem, přihlášení chráněné `django-axes`, změna
+  a obnova hesla, profil, export osobních údajů do JSON a smazání účtu;
+- `animals`: profily psů a koček, měření hmotnosti, BCS a MCS, zdravotní stavy z číselníku
+  podle docs/09 §9.2, úroveň upozornění u každého zvířete, sdílení s veterinářem a potvrzení
+  cílové hmotnosti veterinářem.
+
+Rozsah, oprávnění, pravidla upozornění a otevřené body popisuje
+[docs/12-ucty-a-zvirata.md](docs/12-ucty-a-zvirata.md). Webová aplikace zatím neimportuje
+`nutricalc` ani `refdata` (hlídá to test) a nepočítá energii ani živiny.
+
+### Spuštění lokálně
+
+Předpoklady: Python 3.12+ a PostgreSQL 16. Příkazy se spouštějí z kořene repozitáře.
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'                 # závislosti podle pyproject.toml
+
+# PostgreSQL (Debian/Ubuntu; jinde podle způsobu instalace)
+sudo pg_ctlcluster 16 main start
+sudo -u postgres psql -c "CREATE ROLE barf LOGIN PASSWORD 'barf' CREATEDB;"
+sudo -u postgres createdb -O barf barf
+
+cd backend
+../.venv/bin/python manage.py migrate             # vytvoří tabulky, role a číselník stavů
+../.venv/bin/python manage.py createsuperuser
+../.venv/bin/python manage.py runserver           # http://127.0.0.1:8000/
+```
+
+`manage.py` používá výchozí nastavení `config.settings.dev`: lokální PostgreSQL `barf`/`barf`
+na `localhost:5432`, e-maily (aktivační odkaz, obnova hesla) se vypisují do konzole. Jiné
+připojení lze zadat proměnnými prostředí `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`,
+`POSTGRES_HOST`, `POSTGRES_PORT`; další adresy serveru přidá `DJANGO_ALLOWED_HOSTS`
+(seznam oddělený čárkami). Žádné tajemství není v repozitáři.
+
+Ostatní nastavení: `config.settings.test` (pytest) a `config.settings.prod` (vše citlivé
+z proměnných prostředí, bez nich aplikace nenastartuje; seznam v [`.env.example`](.env.example)).
+Kontrola produkčního nastavení: `python backend/manage.py check --deploy --settings=config.settings.prod`.
+Statické soubory v produkci připraví `collectstatic` a servíruje je webový server.
+
+### Role veterinárního lékaře
+
+Registrace vytvoří účet s rolí `owner`. Roli `vet` přiděluje jen správce: v administraci
+(`/admin/`) otevřete *Uživatelské účty → Uživatelé*, vyberte účet, v části *Oprávnění a role*
+přidejte skupinu `vet` a uložte. Teprve potom s ním mohou majitelé sdílet zvířata. Odebráním
+skupiny veterinář okamžitě ztratí přístup ke sdíleným zvířatům.
+
+### Testy
+
+Testy webové aplikace jsou v `tests/backend/` a běží na PostgreSQL (role `barf` potřebuje právo
+`CREATEDB`, pytest si vytvoří databázi `test_barf`).
+
+```bash
+.venv/bin/python -m pytest -q                                   # celá sada
+.venv/bin/python -m pytest -q tests/backend                     # jen webová aplikace
+cd backend && ../.venv/bin/python manage.py makemigrations --check --dry-run
+```
 
 ## Předávací zpráva Fáze 1
 
