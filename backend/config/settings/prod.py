@@ -9,7 +9,10 @@ true), DJANGO_SECURE_HSTS_PRELOAD (default false), DJANGO_SECURE_PROXY_SSL_HEADE
 (e.g. ``HTTP_X_FORWARDED_PROTO,https``, only behind a proxy that overwrites the header),
 DJANGO_TRUSTED_PROXY_COUNT, DJANGO_STATIC_ROOT, DJANGO_EMAIL_HOST, DJANGO_EMAIL_PORT,
 DJANGO_EMAIL_HOST_USER, DJANGO_EMAIL_HOST_PASSWORD, DJANGO_EMAIL_USE_TLS,
-DJANGO_EMAIL_USE_SSL, DJANGO_DEFAULT_FROM_EMAIL, DJANGO_LOG_LEVEL.
+DJANGO_EMAIL_USE_SSL, DJANGO_DEFAULT_FROM_EMAIL, DJANGO_CONTACT_EMAIL, DJANGO_LOG_LEVEL.
+
+The cache (e-mail limits) lives in the database table ``django_cache``: run
+``manage.py createcachetable`` once after ``migrate`` (README).
 """
 
 from django.core.exceptions import ImproperlyConfigured
@@ -61,6 +64,22 @@ if _proxy_ssl_header:
     SECURE_PROXY_SSL_HEADER = (_proxy_ssl_header[0], _proxy_ssl_header[1])
 
 TRUSTED_PROXY_COUNT = env_int("DJANGO_TRUSTED_PROXY_COUNT", 0)
+if _proxy_ssl_header and TRUSTED_PROXY_COUNT == 0:
+    # Behind a proxy REMOTE_ADDR is the proxy for every visitor: the login lockout would
+    # then be per e-mail only and anyone could lock any account with wrong passwords.
+    raise ImproperlyConfigured(
+        "DJANGO_SECURE_PROXY_SSL_HEADER is set, so the application runs behind a proxy: "
+        "set DJANGO_TRUSTED_PROXY_COUNT to the number of proxies that append to "
+        "X-Forwarded-For (usually 1)."
+    )
+
+# --- Cache shared by all worker processes (limits on account e-mails) ---------------------
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache",
+    }
+}
 
 # --- Static files (collectstatic; served by the web server) -------------------------------
 STATIC_ROOT = env_str("DJANGO_STATIC_ROOT", str(_DEFAULT_STATIC_ROOT))
@@ -82,6 +101,9 @@ if EMAIL_USE_TLS and EMAIL_USE_SSL:
 EMAIL_TIMEOUT = 10
 DEFAULT_FROM_EMAIL = env_str("DJANGO_DEFAULT_FROM_EMAIL", "BARF Nutri <noreply@localhost>")
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+# SMTP runs after the response, so timing does not reveal accounts (accounts.services.deliver).
+ACCOUNT_EMAIL_IN_BACKGROUND = True
+CONTACT_EMAIL = env_str("DJANGO_CONTACT_EMAIL", "")
 
 # --- Logging to stdout (collected by the process manager or container runtime) -----------
 LOGGING = {

@@ -131,12 +131,30 @@ z proměnných prostředí, bez nich aplikace nenastartuje; seznam v [`.env.exam
 Kontrola produkčního nastavení: `python backend/manage.py check --deploy --settings=config.settings.prod`.
 Statické soubory v produkci připraví `collectstatic` a servíruje je webový server.
 
+V produkci navíc:
+
+- Po `migrate` jednou spusťte `manage.py createcachetable`: limity e-mailů z účtu (aktivace,
+  obnova hesla) žijí ve sdílené databázové cache, aby platily pro všechny pracovní procesy.
+- Denně spouštějte `manage.py purge_pending_accounts` a `manage.py clearsessions` (cron nebo
+  systemd timer). První smaže registrace, které nikdo neaktivoval do 7 dnů
+  (`PENDING_ACCOUNT_RETENTION`), druhý prošlé relace.
+- Za reverzní proxy s `DJANGO_SECURE_PROXY_SSL_HEADER` nastavte `DJANGO_TRUSTED_PROXY_COUNT`
+  (obvykle 1), jinak aplikace nenastartuje: všichni návštěvníci by měli adresu proxy a zámek
+  přihlášení by platil jen podle e-mailu, takže by kdokoli mohl zamknout cizí účet. Zámek je
+  podle e-mailu a IP adresy (5 chyb, 1 hodina); hádání jednoho hesla u mnoha účtů z jedné
+  adresy neomezuje (docs/12 §12.10).
+- `DJANGO_CONTACT_EMAIL` je adresa správce, kterou aplikace ukazuje uživatelům (patička, žádost
+  o roli veterinárního lékaře). E-maily z účtu se odesílají až po odpovědi serveru, aby doba
+  odpovědi neprozradila, zda účet existuje.
+
 ### Role veterinárního lékaře
 
 Registrace vytvoří účet s rolí `owner`. Roli `vet` přiděluje jen správce: v administraci
 (`/admin/`) otevřete *Uživatelské účty → Uživatelé*, vyberte účet, v části *Oprávnění a role*
-přidejte skupinu `vet` a uložte. Teprve potom s ním mohou majitelé sdílet zvířata. Odebráním
-skupiny veterinář okamžitě ztratí přístup ke sdíleným zvířatům.
+přidejte skupinu `vet` a uložte. Teprve potom s ním mohou majitelé sdílet zvířata. Veterinář
+o roli žádá e-mailem na adresu správce (`DJANGO_CONTACT_EMAIL`, stránka *Můj účet*). Odebráním
+skupiny veterinář okamžitě ztratí přístup ke sdíleným zvířatům a cílové hmotnosti, které
+potvrdil, budou znovu jen orientační. Potvrzení cílové hmotnosti v administraci měnit nelze.
 
 ### Testy
 

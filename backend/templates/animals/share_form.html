@@ -1,11 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Sdílet s veterinářem: {{ animal.name }}{% endblock %}
+{% block title %}Sdílet s veterinárním lékařem: {{ animal.name }}{% endblock %}
 {% block content %}
 <div class="narrow">
-  <h1>Sdílet s veterinářem: {{ animal.name }}</h1>
-  <p>Veterinární lékař, se kterým zvíře sdílíte, uvidí jeho profil, měření a zdravotní stavy
-  a váš e-mail. Může zapsat nové měření a potvrdit cílovou hmotnost. Upravovat profil,
-  mazat záznamy ani sdílet dál nemůže.</p>
+  <h1>Sdílet s veterinárním lékařem: {{ animal.name }}</h1>
+  <p>Veterinární lékař, se kterým zvíře sdílíte, uvidí profil zvířete, měření, zdravotní stavy
+  a vaše jméno (pokud ho máte v profilu vyplněné) a e-mail. Může zapsat nové měření
+  a potvrdit cílovou hmotnost. Upravovat profil, mazat záznamy ani sdílet dál nemůže.
+  E-maily jiných veterinárních lékařů, se kterými zvíře sdílíte, neuvidí.</p>
   <p>Sdílení můžete kdykoli zrušit na stránce zvířete; veterinář tím přístup ihned ztratí.</p>
   <form method="post" novalidate>
     {% csrf_token %}

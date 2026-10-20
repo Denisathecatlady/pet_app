@@ -41,18 +41,20 @@ LEVELS: Final = (OK, INFO, EXPERT_REQUIRED, BLOCKED)  # ascending severity
 
 ADULT_AGE_MONTHS: Final = 12  # docs/09 §9.2 growth gate, given by the task specification
 
+# The level label (docs/08 §8.6) is shown once above the reasons of that level, so the
+# reason texts do not repeat it.
 _STATE_REASONS: Final = {
     PhysiologicalState.GROWTH: (
-        "Růst (štěně, kotě): automatický výpočet dávky nelze doporučit. Výživu rostoucího "
-        "zvířete má naplánovat veterinární lékař nebo veterinární nutriční specialista."
+        "Růst (štěně, kotě): výživu rostoucího zvířete má naplánovat veterinární lékař "
+        "nebo veterinární nutriční specialista."
     ),
     PhysiologicalState.GESTATION: (
-        "Březost: automatický výpočet dávky nelze doporučit. Výživu březí samice má "
-        "naplánovat veterinární lékař nebo veterinární nutriční specialista."
+        "Březost: výživu březí samice má naplánovat veterinární lékař nebo veterinární "
+        "nutriční specialista."
     ),
     PhysiologicalState.LACTATION: (
-        "Laktace: automatický výpočet dávky nelze doporučit. Výživu kojící samice má "
-        "naplánovat veterinární lékař nebo veterinární nutriční specialista."
+        "Laktace: výživu kojící samice má naplánovat veterinární lékař nebo veterinární "
+        "nutriční specialista."
     ),
 }
 NO_BCS_REASON: Final = (
@@ -85,28 +87,38 @@ def short_date(value: date) -> str:
     return format_date(value, "j. n. Y")
 
 
+# What a score means on the nine-point scale; worded as a reading of the score the user
+# entered, not as a diagnosis. Matches the scale described in the measurement form
+# (1 = vyhublé, 4–5 = ideální, 9 = těžká obezita). 🩺 texts to be reviewed (docs/12 §12.9).
+_BCS_MEANING: Final = {
+    1: "výrazné podvýživě",
+    2: "výrazné podvýživě",
+    3: "podváze",
+    6: "nadváze",
+    7: "nadváze",
+    8: "obezitě",
+    9: "obezitě",
+}
+
+
 def _bcs_reason(measurement: BodyMeasurement) -> Reason | None:
     bcs = measurement.bcs
-    when = short_date(measurement.measured_on)
-    if bcs is None or 4 <= bcs <= 5:
+    if bcs is None or bcs not in _BCS_MEANING:
         return None
+    meaning = _BCS_MEANING[bcs]
+    reading = (
+        f"Poslední zadané BCS je {bcs}/9 (ze dne {short_date(measurement.measured_on)}), "
+        f"což na devítibodové škále odpovídá {meaning}."
+    )
     if bcs <= 2:
         return Reason(
             BLOCKED,
-            f"Poslední BCS je {bcs}/9 (z {when}), tedy výrazná podvýživa. Může jít "
-            "o onemocnění: obraťte se na veterinárního lékaře. Automatický výpočet dávky "
-            "nelze doporučit.",
+            f"{reading} Může jít o onemocnění: obraťte se na veterinárního lékaře.",
         )
-    if bcs == 3:
-        return Reason(
-            EXPERT_REQUIRED,
-            f"Poslední BCS je 3/9 (z {when}), tedy podváha. Přibírání potřebuje plán "
-            "a kontrolu veterinárního lékaře.",
-        )
+    plan = "Přibírání" if bcs == 3 else "Hubnutí"
     return Reason(
         EXPERT_REQUIRED,
-        f"Poslední BCS je {bcs}/9 (z {when}), tedy nadváha. Hubnutí potřebuje plán "
-        "a kontrolu veterinárního lékaře.",
+        f"{reading} {plan} potřebuje plán a kontrolu veterinárního lékaře.",
     )
 
 
@@ -150,8 +162,7 @@ def attention(animal: Animal, *, today: date | None = None) -> Attention:
             reasons.append(
                 Reason(
                     BLOCKED,
-                    f"Zdravotní stav „{name}“: automatický výpočet dávky nelze doporučit. "
-                    "O stravě rozhoduje veterinární lékař.",
+                    f"Zdravotní stav „{name}“: o stravě rozhoduje veterinární lékař.",
                 )
             )
         else:
@@ -175,7 +186,8 @@ def attention(animal: Animal, *, today: date | None = None) -> Attention:
         reasons.append(
             Reason(
                 EXPERT_REQUIRED,
-                f"Poslední hodnocení svalové kondice (z {short_date(latest_mcs.measured_on)}): "
+                "Poslední hodnocení svalové kondice "
+                f"(ze dne {short_date(latest_mcs.measured_on)}): "
                 f"{latest_mcs.get_mcs_display()}. Ztrátu svalové hmoty má posoudit "
                 "veterinární lékař.",
             )
@@ -202,7 +214,12 @@ def attention(animal: Animal, *, today: date | None = None) -> Attention:
 # --- Age and summaries ------------------------------------------------------------------------
 
 
-def _plural(count: int, one: str, few: str, many: str) -> str:
+def plural(count: int, one: str, few: str, many: str) -> str:
+    """Return the Czech form of a noun for ``count``.
+
+    Example: ``plural(2, "zdravotní stav", "zdravotní stavy", "zdravotních stavů")``
+    → ``"zdravotní stavy"``. 1 → ``one``, 2–4 → ``few``, anything else (0, 5+) → ``many``.
+    """
     if count == 1:
         return one
     if 2 <= count <= 4:
@@ -218,10 +235,10 @@ def age_text(animal: Animal, *, today: date | None = None) -> str:
     if months < 1:
         text = "méně než 1 měsíc"
     elif months < 12:
-        text = f"{months} {_plural(months, 'měsíc', 'měsíce', 'měsíců')}"
+        text = f"{months} {plural(months, 'měsíc', 'měsíce', 'měsíců')}"
     else:
         years = months // 12
-        text = f"{years} {_plural(years, 'rok', 'roky', 'let')}"
+        text = f"{years} {plural(years, 'rok', 'roky', 'let')}"
     return f"asi {text}" if animal.birth_date_estimated else text
 
 
@@ -281,7 +298,8 @@ def shared_animals(user: Any) -> QuerySet[Animal]:
 NOT_A_VET_MESSAGE: Final = (
     "K tomuto e-mailu nepatří aktivní účet veterinárního lékaře. Sdílet lze jen s účtem, "
     "kterému správce aplikace přidělil roli veterinárního lékaře. Požádejte svého "
-    "veterináře, ať si založí účet a o roli požádá."
+    "veterinárního lékaře, aby si založil účet a požádal správce aplikace o roli "
+    "veterinárního lékaře (postup najde po přihlášení na stránce Můj účet)."
 )
 
 
@@ -327,34 +345,42 @@ def revoke_share(share: AnimalShare) -> None:
 # --- Target weight confirmation (docs/05 §5.3) ------------------------------------------------
 
 
+CONFIRMATION_FIELDS: Final = (
+    "target_weight_status",
+    "target_weight_confirmed_by",
+    "target_weight_confirmed_at",
+)
+
+
 def confirm_target_weight(animal: Animal, vet: Any, expected_kg: Decimal) -> None:
     """Record that ``vet`` confirms the animal's current target weight.
 
     Inputs: the animal (the caller has checked ``CONFIRM_TARGET_WEIGHT``), the vet and
-    the value the vet saw on the page. Confirming a value that has changed meanwhile
-    is refused, so a vet never confirms a number they have not seen.
+    the value the vet saw on the page. The checks run on the database row locked with
+    ``SELECT … FOR UPDATE``, not on ``animal`` as loaded earlier: an owner's edit
+    committed meanwhile is either seen here (and the confirmation refused) or waits
+    until the confirmation is committed. So a vet never confirms a number they have
+    not seen (docs/05 §5.3). On success the confirmation is also set on ``animal``.
 
     Raises:
         ValidationError: no target weight is set, it is already confirmed, or it
             differs from ``expected_kg``.
     """
-    if animal.target_weight_kg is None:
-        raise ValidationError("Majitel zatím nezadal cílovou hmotnost.", code="missing")
-    if animal.target_weight_confirmed:
-        raise ValidationError("Cílová hmotnost už je potvrzená.", code="confirmed")
-    if animal.target_weight_kg != expected_kg:
-        raise ValidationError(
-            "Cílová hmotnost se mezitím změnila. Zkontrolujte novou hodnotu a potvrďte ji znovu.",
-            code="changed",
-        )
-    animal.target_weight_status = TargetWeightStatus.VET_CONFIRMED
-    animal.target_weight_confirmed_by = vet
-    animal.target_weight_confirmed_at = timezone.now()
-    animal.save(
-        update_fields=[
-            "target_weight_status",
-            "target_weight_confirmed_by",
-            "target_weight_confirmed_at",
-            "updated_at",
-        ]
-    )
+    with transaction.atomic():
+        current = Animal.objects.select_for_update().get(pk=animal.pk)
+        if current.target_weight_kg is None:
+            raise ValidationError("Majitel zatím nezadal cílovou hmotnost.", code="missing")
+        if current.target_weight_confirmed:
+            raise ValidationError("Cílová hmotnost už je potvrzená.", code="confirmed")
+        if current.target_weight_kg != expected_kg:
+            raise ValidationError(
+                "Cílová hmotnost se mezitím změnila. Zkontrolujte novou hodnotu "
+                "a potvrďte ji znovu.",
+                code="changed",
+            )
+        current.target_weight_status = TargetWeightStatus.VET_CONFIRMED
+        current.target_weight_confirmed_by = vet
+        current.target_weight_confirmed_at = timezone.now()
+        current.save(update_fields=[*CONFIRMATION_FIELDS, "updated_at"])
+    for name in CONFIRMATION_FIELDS:
+        setattr(animal, name, getattr(current, name))

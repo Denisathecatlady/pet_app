@@ -11,7 +11,7 @@
     {% csrf_token %}
     <p class="actions">
       <button type="submit" class="button button--danger">{{ button }}</button>
-      <a class="button button--secondary" href="{{ animal.get_absolute_url }}">Zrušit</a>
+      <a class="button button--secondary" href="{{ animal.get_absolute_url }}">{{ cancel|default:"Zrušit" }}</a>
     </p>
   </form>
 </div>

@@ -11,16 +11,18 @@ animal or an account removes the data for good (GDPR art. 17, docs/07 §7.7).
 import re
 import uuid
 from collections.abc import Iterable
+from datetime import date
 from decimal import Decimal
 from types import MappingProxyType
 from typing import Any, Final
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.db import models
 from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateformat import format as format_date
 from simple_history.models import HistoricalRecords
 
 from accounts.roles import Role
@@ -113,6 +115,10 @@ BCS_MAX: Final = 9
 ALLERGY_MAX_LENGTH: Final = 60
 ALLERGY_MAX_COUNT: Final = 30
 
+# A vet confirms the target weight of this animal as it is described (docs/05 §5.3). When
+# any of these fields changes, the confirmation no longer applies and is cancelled.
+CONFIRMATION_BASIS_FIELDS: Final = ("target_weight_kg", "species", "physiological_state")
+
 
 def format_kg(value: Decimal) -> str:
     """Return ``value`` in Czech notation without trailing zeros.
@@ -175,6 +181,20 @@ def normalize_allergies(value: Any) -> list[str]:
     if len(result) > ALLERGY_MAX_COUNT:
         raise ValidationError(f"Zadejte nejvýše {ALLERGY_MAX_COUNT} položek.", code="too_many")
     return result
+
+
+def _czech_date(value: date) -> str:
+    return format_date(value, "j. n. Y")
+
+
+def _before_birth(animal: "Animal", value: date | None) -> bool:
+    """Return whether ``value`` precedes the animal's birth date.
+
+    Only an exact birth date counts; an estimated one (``birth_date_estimated``) may be
+    off, so nothing is rejected against it.
+    """
+    birth = animal.birth_date
+    return bool(value and birth and not animal.birth_date_estimated and value < birth)
 
 
 def _choices(field: str, choices: type[models.TextChoices], *, blank: bool = False) -> Q:
@@ -347,15 +367,33 @@ class Animal(models.Model):
     def clean(self) -> None:
         """Validate cross-field rules with field-level Czech messages.
 
+        Also cancels a vet's target-weight confirmation when a field it is based on
+        (``CONFIRMATION_BASIS_FIELDS``) changed against the stored row, whoever edits
+        the animal (owner's form, admin). See :meth:`_check_target_weight_confirmation`.
+
         Raises:
-            ValidationError: birth date in the future, size category for a cat,
-                gestation or lactation for a male, weights outside
-                ``WEIGHT_BOUNDS_KG``, malformed allergies, or a species change
-                that existing measurements do not fit.
+            ValidationError: birth date in the future or later than a stored
+                measurement or condition start, size category for a cat, gestation
+                or lactation for a male, weights outside ``WEIGHT_BOUNDS_KG``,
+                malformed allergies, a species change that existing measurements do
+                not fit, or a new confirmation by an account without the vet role.
         """
         errors: dict[str, str] = {}
         if self.birth_date and self.birth_date > timezone.localdate():
             errors["birth_date"] = "Datum narození nemůže být v budoucnosti."
+        elif (
+            self.pk
+            and self.birth_date
+            and not self.birth_date_estimated
+            and (
+                self.measurements.filter(measured_on__lt=self.birth_date).exists()
+                or self.conditions.filter(since__lt=self.birth_date).exists()
+            )
+        ):
+            errors["birth_date"] = (
+                "Datum narození je pozdější než některé uložené měření nebo začátek "
+                "zdravotního stavu. Opravte datum, nebo ho označte jako odhad."
+            )
         if self.birth_date_estimated and not self.birth_date:
             errors["birth_date_estimated"] = "Odhad lze označit jen u zadaného data narození."
         if self.species == Species.CAT and self.size_category:
@@ -378,8 +416,50 @@ class Animal(models.Model):
                     "Druh nelze změnit: některá uložená měření mají hmotnost mimo rozmezí "
                     "pro zvolený druh. Nejdříve je opravte nebo smažte."
                 )
+        message = self._check_target_weight_confirmation()
+        if message:
+            errors[NON_FIELD_ERRORS] = message
         if errors:
             raise ValidationError(errors)
+
+    def _check_target_weight_confirmation(self) -> str | None:
+        """Keep the confirmation invariant of docs/05 §5.3 for every edit path.
+
+        A confirmation already stored is cancelled (not saved here) when a field of
+        ``CONFIRMATION_BASIS_FIELDS`` differs from the stored row: the vet confirmed the
+        old values. A confirmation set in this edit must name an account with the vet
+        role. Output: an error message, or ``None``.
+        """
+        if not self.target_weight_confirmed:
+            return None
+        stored = None
+        if self.pk:
+            stored = (
+                Animal.objects.filter(pk=self.pk)
+                .values(
+                    *CONFIRMATION_BASIS_FIELDS,
+                    "target_weight_status",
+                    "target_weight_confirmed_by",
+                    "target_weight_confirmed_at",
+                )
+                .first()
+            )
+        if stored is not None and (
+            stored["target_weight_status"],
+            stored["target_weight_confirmed_by"],
+            stored["target_weight_confirmed_at"],
+        ) == (
+            self.target_weight_status,
+            self.target_weight_confirmed_by_id,
+            self.target_weight_confirmed_at,
+        ):
+            if any(stored[name] != getattr(self, name) for name in CONFIRMATION_BASIS_FIELDS):
+                self.reset_target_weight_confirmation()
+            return None
+        confirmed_by = self.target_weight_confirmed_by
+        if confirmed_by is not None and not confirmed_by.has_role(Role.VET):
+            return "Cílovou hmotnost může potvrdit jen účet s rolí veterinárního lékaře."
+        return None
 
 
 class BodyMeasurement(models.Model):
@@ -443,12 +523,18 @@ class BodyMeasurement(models.Model):
         """Validate the date and the species-specific weight bounds.
 
         Raises:
-            ValidationError: measurement date in the future, weight outside the
-                bounds of the animal's species, BCS outside 1–9.
+            ValidationError: measurement date in the future or before the animal's
+                exact birth date, weight outside the bounds of the animal's species,
+                BCS outside 1–9.
         """
         errors: dict[str, str] = {}
         if self.measured_on and self.measured_on > timezone.localdate():
             errors["measured_on"] = "Datum měření nemůže být v budoucnosti."
+        elif self.animal_id is not None and _before_birth(self.animal, self.measured_on):
+            errors["measured_on"] = (
+                "Datum měření nemůže být dřívější než datum narození zvířete "
+                f"({_czech_date(self.animal.birth_date)})."
+            )
         if self.animal_id is not None and self.weight_kg is not None:
             message = weight_error(self.animal.species, self.weight_kg)
             if message:
@@ -520,9 +606,16 @@ class AnimalHealthCondition(models.Model):
         return f"{self.animal}: {self.condition}"
 
     def clean(self) -> None:
-        """Raises ``ValidationError`` when ``since`` is in the future."""
+        """Raises ``ValidationError`` when ``since`` is in the future or before the birth date."""
         if self.since and self.since > timezone.localdate():
             raise ValidationError({"since": "Datum nemůže být v budoucnosti."})
+        if self.animal_id is not None and _before_birth(self.animal, self.since):
+            raise ValidationError(
+                {
+                    "since": "Datum nemůže být dřívější než datum narození zvířete "
+                    f"({_czech_date(self.animal.birth_date)})."
+                }
+            )
 
 
 class AnimalShareQuerySet(models.QuerySet["AnimalShare"]):

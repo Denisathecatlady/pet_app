@@ -6,12 +6,19 @@ from django import forms
 from django.contrib.auth import authenticate, password_validation
 from django.contrib.auth import forms as auth_forms
 from django.core.exceptions import ValidationError
+from django.core.mail import EmailMessage
 from django.http import HttpRequest
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.html import format_html
 
 from .models import User, UserManager
-from .services import claim_email_slot, password_matches
+from .services import (
+    activation_password_matches,
+    claim_email_slot,
+    deliver,
+    password_matches,
+)
 
 INVALID_LOGIN_MESSAGE = (
     "Zadejte správný e-mail a heslo. Pokud jste se právě zaregistrovali, "
@@ -57,18 +64,49 @@ class RegistrationForm(forms.Form):
         return UserManager.normalize_email(self.cleaned_data["email"])
 
     def clean(self) -> dict[str, Any]:
+        # Both checks run, so all password errors show after one submission.
         cleaned = super().clean()
         password1 = cleaned.get("password1")
         password2 = cleaned.get("password2")
-        if password1 and password2 and password1 != password2:
-            self.add_error("password2", "Hesla se neshodují.")
-        elif password1:
+        if password1:
             candidate = User(email=cleaned.get("email") or "")
             try:
                 password_validation.validate_password(password1, candidate)
             except ValidationError as error:
                 self.add_error("password1", error)
+        if password1 and password2 and password1 != password2:
+            self.add_error("password2", "Hesla se neshodují.")
         return cleaned
+
+
+class ActivationForm(forms.Form):
+    """Password of the latest registration, required to activate the account."""
+
+    password = forms.CharField(
+        label="Heslo zvolené při registraci",
+        strip=False,
+        widget=forms.PasswordInput(
+            attrs={"autocomplete": "current-password", "autofocus": True}
+        ),
+        help_text=(
+            "Pokud jste se s touto adresou registrovali vícekrát, platí heslo z poslední "
+            "registrace."
+        ),
+    )
+
+    def __init__(self, *args: Any, user: User, **kwargs: Any) -> None:
+        self.user = user
+        super().__init__(*args, **kwargs)
+
+    def clean_password(self) -> str:
+        password = self.cleaned_data["password"]
+        if not activation_password_matches(self.user, password):
+            raise ValidationError(
+                "Heslo nesouhlasí s heslem z poslední registrace této adresy. Zkuste ho zadat "
+                "znovu, nebo se zaregistrujte znovu a aktivujte účet odkazem z nového e-mailu.",
+                code="password_mismatch",
+            )
+        return password
 
 
 class LoginForm(forms.Form):
@@ -142,12 +180,30 @@ class PasswordChangeForm(auth_forms.PasswordChangeForm):
 
 
 class PasswordResetForm(auth_forms.PasswordResetForm):
-    """Built-in reset form with a per-user limit on how often the e-mail is sent."""
+    """Built-in reset form with a per-user e-mail limit and delivery through ``deliver``."""
 
     def get_users(self, email: str):  # type: ignore[no-untyped-def]
         return (
             user for user in super().get_users(email) if claim_email_slot("password-reset", user)
         )
+
+    def send_mail(  # type: ignore[override]
+        self,
+        subject_template_name: str,
+        email_template_name: str,
+        context: dict[str, Any],
+        from_email: str | None,
+        to_email: str,
+        html_email_template_name: str | None = None,
+    ) -> None:
+        """Render the reset e-mail in the request and hand it to ``services.deliver``.
+
+        With background delivery the page answers equally fast for known and unknown
+        addresses (no account enumeration by timing).
+        """
+        subject = "".join(render_to_string(subject_template_name, context).splitlines())
+        body = render_to_string(email_template_name, context)
+        deliver(EmailMessage(subject, body, from_email, [to_email]))
 
 
 class AccountDeleteForm(forms.Form):

@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 from django.core.exceptions import PermissionDenied
+from django.forms.models import model_to_dict
 from django.http import Http404
 from django.test import Client
 from django.urls import reverse
@@ -95,13 +96,16 @@ def post_data(name: str) -> dict:
     today = timezone.localdate().isoformat()
     return {
         "detail": {},
+        # Every field differs from the ``world`` animal, so a leaked edit is visible.
         "edit": {
-            "name": "Rex",
+            "name": "Změněno",
             "species": "DOG",
             "sex": "MALE",
+            "neutered": "on",
             "physiological_state": "MAINTENANCE",
             "activity_level": "LOW",
-            "target_weight_kg": "20",
+            "target_weight_kg": "25",
+            "notes": "cizí zásah",
         },
         "delete": {},
         "measurement_add": {"measured_on": today, "weight_kg": "21,5", "bcs": "5"},
@@ -129,7 +133,7 @@ ENDPOINTS = [
     Endpoint("condition_edit", OWNER_ONLY, OWNER_ONLY_POST),
     Endpoint("condition_remove", OWNER_ONLY, OWNER_ONLY_POST),
     Endpoint("share_add", OWNER_ONLY, OWNER_ONLY_POST),
-    Endpoint("share_revoke", {r: 405 for r in ROLES[:-1]}, OWNER_ONLY_POST),
+    Endpoint("share_revoke", OWNER_ONLY, OWNER_ONLY_POST),
     Endpoint(
         "target_weight_confirm",
         {r: 405 for r in ROLES[:-1]},
@@ -163,19 +167,42 @@ def test_post_matrix(world, endpoint, role):
         assert response["Location"].startswith(reverse("accounts:login"))
 
 
+def snapshot():
+    """Every stored row of the animals app, compared before and after forbidden requests."""
+    return {
+        model.__name__: sorted(
+            (model_to_dict(obj, exclude=["allergies"]) for obj in model.objects.all()),
+            key=lambda row: row["id"],
+        )
+        for model in (Animal, BodyMeasurement, AnimalHealthCondition, AnimalShare)
+    }
+
+
 @pytest.mark.parametrize("role", ["shared_vet", *HIDDEN, "anonymous"])
 def test_forbidden_posts_change_nothing(world, role):
+    before = snapshot()
     client = client_for(world, role)
     for endpoint in ENDPOINTS:
         if endpoint.name not in ("measurement_add", "target_weight_confirm"):
             client.post(endpoint.url(world), post_data(endpoint.name))
 
-    animal = Animal.objects.get(pk=world.animal.pk)
-    assert animal.name == "Rex"
-    assert BodyMeasurement.objects.filter(pk=world.measurement.pk).exists()
-    assert list(animal.conditions.values_list("condition__code", "note")) == [("FOOD_ALLERGY", "")]
-    assert AnimalShare.objects.active().count() == 1
-    assert AnimalShare.objects.get(pk=world.share.pk).is_active
+    assert snapshot() == before
+
+
+@pytest.mark.parametrize("role", ["shared_vet", *HIDDEN, "anonymous"])
+def test_forbidden_edit_leaves_every_field(world, role):
+    """Guard of the guard: the edit data would change every field if it got through."""
+    before = model_to_dict(Animal.objects.get(pk=world.animal.pk))
+    client_for(world, role).post(
+        reverse("animals:edit", args=[world.animal.uuid]), post_data("edit")
+    )
+    assert model_to_dict(Animal.objects.get(pk=world.animal.pk)) == before
+
+    owner = client_for(world, "owner")
+    owner.post(reverse("animals:edit", args=[world.animal.uuid]), post_data("edit"))
+    after = model_to_dict(Animal.objects.get(pk=world.animal.pk))
+    changed = {name for name in before if before[name] != after[name]}
+    assert {"name", "neutered", "activity_level", "target_weight_kg", "notes"} <= changed
 
 
 @pytest.mark.parametrize("role", [*HIDDEN, "anonymous"])

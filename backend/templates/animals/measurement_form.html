@@ -3,7 +3,7 @@
 {% block content %}
 <div class="narrow">
   <h1>Nové měření: {{ animal.name }}</h1>
-  <p>Měření se uloží jako posouzené: <strong>{{ assessor }}</strong>.</p>
+  <p>Měření se uloží jako posouzené <strong>{{ assessed_by }}</strong>.</p>
   <p class="hint">Pole označená hvězdičkou jsou povinná.</p>
   <form method="post" novalidate>
     {% csrf_token %}

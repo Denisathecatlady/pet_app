@@ -106,6 +106,79 @@ def test_export_is_json_serialisable_without_custom_encoder(user, records):
     json.dumps(build_export(user))
 
 
+def test_export_names_an_administrator_only_by_role(client, user, records, make_user):
+    """docs/12 §12.6: an admin's e-mail never reaches an owner's export."""
+    staff = make_user("internal-admin@firma.cz", is_staff=True, is_superuser=True, roles=())
+    animal = records["animal"]
+    client.force_login(staff)
+    url = reverse("admin:animals_animal_change", args=[animal.pk])
+    data = {
+        "owner": user.pk,
+        "name": "Rex",
+        "species": "DOG",
+        "sex": "MALE",
+        "activity_level": "MODERATE",
+        "physiological_state": "MAINTENANCE",
+        "target_weight_kg": "20",
+        "allergies": '["kuřecí"]',
+        "notes": "opraveno správcem",
+    }
+    assert client.post(url, data).status_code == 302
+
+    raw = json.dumps(build_export(user), ensure_ascii=False)
+
+    assert "internal-admin@firma.cz" not in raw
+    history = json.loads(raw)["data"]["animals"]["owned_animals"][0]["history"]
+    assert history[-1]["changed_by"] == "správce aplikace"
+    assert history[-1]["values"]["notes"] == "opraveno správcem"
+
+
+def test_export_names_the_owner_and_vets_the_animal_was_shared_with(
+    user, records, vet_user, make_user, make_measurement
+):
+    stranger = make_user("stranger@example.cz")
+    make_measurement(records["animal"], created_by=stranger)  # e.g. a record made in a script
+
+    data = build_export(user)["data"]["animals"]["owned_animals"][0]
+
+    assert data["history"][0]["changed_by"] is None  # created without a request
+    assert data["target_weight_confirmed_by"] == vet_user.email
+    authors = [m["created_by"] for m in data["measurements"]]
+    assert vet_user.email in authors and user.email in authors
+    assert "jiný uživatel" in authors
+    assert "stranger@example.cz" not in json.dumps(data)
+
+    records["share"].revoked_at = timezone.now()
+    records["share"].save()
+    data = build_export(user)["data"]["animals"]["owned_animals"][0]
+    assert data["shares"][0]["vet"] == vet_user.email  # still a vet the owner shared with
+
+
+def test_export_query_count_does_not_grow_with_data(user, make_animal, make_measurement, vet_user):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    def add_animal(index):
+        animal = make_animal(user, name=f"Zvíře {index}")
+        for _ in range(3):
+            make_measurement(animal, assessed_by=Assessor.VET, created_by=vet_user)
+        AnimalHealthCondition.objects.create(
+            animal=animal, condition=HealthCondition.objects.get(code="CKD")
+        )
+        AnimalShare.objects.create(animal=animal, vet=vet_user, granted_by=user)
+
+    def queries():
+        with CaptureQueriesContext(connection) as captured:
+            build_export(user)
+        return len(captured)
+
+    add_animal(0)
+    one = queries()
+    for index in range(1, 6):
+        add_animal(index)
+    assert queries() == one
+
+
 # --- Deletion cascades ------------------------------------------------------------------------
 
 
@@ -189,3 +262,39 @@ def test_delete_page_explains_consequences_for_vets(client, vet_user, user):
 def test_privacy_draft_describes_sharing(client):
     content = client.get(reverse("core:privacy")).content.decode()
     assert "roli veterinárního lékaře" in content and "váš e-mail" in content
+    assert "e-maily jiných veterinárních lékařů" in " ".join(content.split())
+
+
+def test_deletion_texts_do_not_overstate_what_is_deleted(client, user, vet_user):
+    """A vet's measurements stay with the owners; no page says "všechna data" are gone."""
+    def text(url):
+        return " ".join(client.get(url).content.decode().split())
+
+    overstated = "všechna data, která jste zadali"
+    deleted, privacy = text(reverse("accounts:deleted")), text(reverse("core:privacy"))
+    assert overstated not in deleted and overstated not in privacy
+    assert "zůstala majitelům bez vazby na váš účet" in deleted
+    assert "Ze záloh databáze zmizí údaje až po uplynutí" in deleted
+    assert "zůstanou majitelům bez vazby na jeho účet" in privacy
+
+    client.force_login(vet_user)
+    profile = text(reverse("accounts:profile"))
+    assert overstated not in profile
+    assert "zůstanou majitelům bez vazby na váš účet" in profile
+    client.force_login(user)
+    assert "zůstanou majitelům" not in text(reverse("accounts:profile"))
+
+
+def test_profile_explains_how_to_get_the_vet_role(client, user, vet_user, settings):
+    settings.CONTACT_EMAIL = "podpora@example.cz"
+    client.force_login(user)
+    content = client.get(reverse("accounts:profile")).content.decode()
+    assert "Roli veterinárního lékaře přiděluje na žádost" in content
+    assert 'href="mailto:podpora@example.cz"' in content
+    # Separate regions for security and data (landmark navigation).
+    assert '<section aria-labelledby="security-title">' in content
+    assert '<section aria-labelledby="data-title">' in content
+    client.force_login(vet_user)
+    assert "Roli veterinárního lékaře přiděluje" not in client.get(
+        reverse("accounts:profile")
+    ).content.decode()

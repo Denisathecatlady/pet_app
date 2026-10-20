@@ -197,6 +197,24 @@ def test_confirmation_refuses_a_changed_value(vet_client, shared):
     assert any("se mezitím změnila" in m for m in messages_of(response))
 
 
+def test_confirmation_checks_the_stored_row_not_a_stale_instance(vet_user, shared):
+    """The vet's page showed 18,5 kg; the owner saved 25 kg before the confirmation ran."""
+    from django.core.exceptions import ValidationError
+
+    from animals.services import confirm_target_weight
+
+    stale = Animal.objects.get(pk=shared.pk)
+    Animal.objects.filter(pk=shared.pk).update(target_weight_kg=Decimal("25"))
+
+    with pytest.raises(ValidationError) as error:
+        confirm_target_weight(stale, vet_user, Decimal("18.5"))
+
+    assert error.value.code == "changed"
+    shared.refresh_from_db()
+    assert shared.target_weight_kg == Decimal("25")
+    assert shared.target_weight_status == TargetWeightStatus.UNVERIFIED
+
+
 def test_confirmation_without_target_weight(vet_client, shared):
     Animal.objects.filter(pk=shared.pk).update(target_weight_kg=None)
     response = confirm(vet_client, shared)
@@ -295,11 +313,14 @@ def test_measurement_form_errors(owner_client, user, make_animal):
     assert not BodyMeasurement.objects.exists()
 
 
-def test_measurement_form_shows_assessor(vet_client, shared):
-    content = vet_client.get(
-        reverse("animals:measurement_add", args=[shared.uuid])
-    ).content.decode()
-    assert "Měření se uloží jako posouzené: <strong>veterinární lékař</strong>." in content
+def test_measurement_form_shows_assessor(client, user, vet_user, shared):
+    url = reverse("animals:measurement_add", args=[shared.uuid])
+    client.force_login(vet_user)
+    content = client.get(url).content.decode()
+    assert "Měření se uloží jako posouzené <strong>veterinárním lékařem</strong>." in content
+    client.force_login(user)
+    content = client.get(url).content.decode()
+    assert "Měření se uloží jako posouzené <strong>majitelem</strong>." in content
 
 
 def test_measurements_table_newest_first(owner_client, user, make_animal, make_measurement):
@@ -484,21 +505,26 @@ def test_detail_for_owner(owner_client, user, make_animal, make_measurement):
 
     assert "<h1>Rex</h1>" in content
     assert "Vyžaduje odborné posouzení" in content
-    assert "Poslední BCS je 8/9" in content
+    assert "Poslední zadané BCS je 8/9" in content
     assert "Co dělat dál:" in content
+    assert "Pro veterinárního lékaře:" not in content
     assert "nenahrazuje veterinární vyšetření" in content
     assert "ryby" in content
     assert "věk: 2 roky" in content
     for name in ("edit", "delete", "measurement_add", "condition_add", "share_add"):
         assert reverse(f"animals:{name}", args=[animal.uuid]) in content
-    assert "Sdílení s veterinářem" in content
+    assert "Sdílení s veterinárním lékařem" in content
+    assert "Velikostní kategorie" in content
+    assert "no-store" in owner_client.get(detail_url(animal))["Cache-Control"]
 
 
 def test_detail_for_shared_vet(vet_client, shared, make_measurement):
     make_measurement(shared, bcs=5)
     content = vet_client.get(detail_url(shared)).content.decode()
 
-    assert "Zvíře s vámi sdílí majitel jana@example.cz." in content
+    assert "Zvíře s vámi sdílí: jana@example.cz." in content
+    # The target weight section speaks to the vet who can confirm it.
+    assert "Cílovou hmotnost zadal majitel; zatím je jen orientační." in content
     assert reverse("animals:measurement_add", args=[shared.uuid]) in content
     for name in ("edit", "delete", "condition_add", "share_add"):
         assert reverse(f"animals:{name}", args=[shared.uuid]) not in content
@@ -538,3 +564,226 @@ def test_measurement_form_defaults_to_today(owner_client, user, make_animal):
         reverse("animals:measurement_add", args=[animal.uuid])
     ).content.decode()
     assert f'value="{timezone.localdate().isoformat()}"' in content
+
+
+def test_detail_names_the_owner_for_a_vet(client, make_user, vet_user, make_animal):
+    owner = make_user("owner@example.cz", first_name="Jana", last_name="Nováková")
+    animal = make_animal(owner)
+    AnimalShare.objects.create(animal=animal, vet=vet_user, granted_by=owner)
+    client.force_login(vet_user)
+    content = client.get(detail_url(animal)).content.decode()
+    assert "Zvíře s vámi sdílí: Jana Nováková (owner@example.cz)." in content
+    assert "majitel Jana" not in content
+
+
+def test_attention_advice_is_written_for_the_viewer(client, vet_user, shared, make_measurement):
+    make_measurement(shared, bcs=8)
+    client.force_login(vet_user)
+    vet_page = client.get(detail_url(shared)).content.decode()
+    assert "Pro veterinárního lékaře:" in vet_page
+    assert "Co dělat dál:" not in vet_page
+
+
+# --- Data minimisation for vets (docs/12 §12.6) -------------------------------------------------
+
+
+def test_vet_does_not_see_another_vets_email(
+    client, user, make_user, make_animal, make_measurement
+):
+    first = make_user("v1@example.cz", roles=(Role.VET,))
+    second = make_user("v2@example.cz", roles=(Role.VET,))
+    animal = make_animal(user, target_weight_kg=Decimal("20"))
+    for vet in (first, second):
+        AnimalShare.objects.create(animal=animal, vet=vet, granted_by=user)
+    make_measurement(animal, assessed_by=Assessor.VET, created_by=second)
+    client.force_login(second)
+    confirm(client, animal, value="20")
+
+    client.force_login(first)
+    other_vet_page = client.get(detail_url(animal)).content.decode()
+    assert "v2@example.cz" not in other_vet_page
+    assert "Potvrdil(a) veterinární lékař dne" in other_vet_page
+
+    client.force_login(second)
+    own_page = client.get(detail_url(animal)).content.decode()
+    assert "veterinární lékař (v2@example.cz)" in own_page
+    assert "Potvrdil(a) v2@example.cz dne" in own_page
+
+    client.force_login(user)
+    owner_page = client.get(detail_url(animal)).content.decode()
+    assert "veterinární lékař (v2@example.cz)" in owner_page
+    assert "Potvrdil(a) v2@example.cz dne" in owner_page
+
+
+def test_share_form_lists_what_the_vet_will_see(owner_client, user, make_animal):
+    content = owner_client.get(
+        reverse("animals:share_add", args=[make_animal(user).uuid])
+    ).content.decode()
+    assert "vaše jméno (pokud ho máte v profilu vyplněné) a e-mail" in content
+    assert "E-maily jiných veterinárních lékařů" in content
+
+
+# --- Delete confirmation wording ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("count", "text"),
+    [(0, "0 zdravotních stavů"), (1, "1 zdravotní stav,"), (2, "2 zdravotní stavy"),
+     (5, "5 zdravotních stavů")],
+)
+def test_delete_confirmation_uses_czech_plural(owner_client, user, make_animal, count, text):
+    animal = make_animal(user)
+    for condition in HealthCondition.objects.order_by("code")[:count]:
+        AnimalHealthCondition.objects.create(animal=animal, condition=condition)
+    page = owner_client.get(reverse("animals:delete", args=[animal.uuid])).content.decode()
+    assert text in page
+
+
+@pytest.mark.parametrize(
+    ("count", "expected"),
+    [(0, "stavů"), (1, "stav"), (2, "stavy"), (4, "stavy"), (5, "stavů"), (11, "stavů")],
+)
+def test_plural_helper(count, expected):
+    from animals.services import plural
+
+    assert plural(count, "stav", "stavy", "stavů") == expected
+
+
+# --- Revoking a share --------------------------------------------------------------------------
+
+
+def test_revoke_share_has_a_confirmation_page(owner_client, shared):
+    item = AnimalShare.objects.get()
+    url = reverse("animals:share_revoke", args=[shared.uuid, item.uuid])
+    detail = owner_client.get(detail_url(shared)).content.decode()
+    assert f'href="{url}"' in detail  # a link to the confirmation, not a one-click form
+
+    page = owner_client.get(url).content.decode()
+    assert "Zrušit sdílení s vet@example.cz?" in page
+    assert "ihned ztratí přístup" in page
+    assert "Ponechat sdílení" in page
+    assert AnimalShare.objects.get().is_active  # GET changes nothing
+
+    owner_client.post(url)
+    assert not AnimalShare.objects.get().is_active
+
+
+# --- Profile facts and hints ---------------------------------------------------------------------
+
+
+def test_allergies_without_food_allergy_condition_show_a_hint(owner_client, user, make_animal):
+    animal = make_animal(user, allergies=["kuřecí maso"])
+    hint = "zadejte také jako zdravotní stav „Potravní alergie“"
+    assert hint in owner_client.get(detail_url(animal)).content.decode()
+
+    AnimalHealthCondition.objects.create(
+        animal=animal, condition=HealthCondition.objects.get(code="FOOD_ALLERGY")
+    )
+    assert hint not in owner_client.get(detail_url(animal)).content.decode()
+
+
+def test_allergy_hint_is_not_shown_to_a_vet(vet_client, shared):
+    Animal.objects.filter(pk=shared.pk).update(allergies=["kuřecí maso"])
+    content = vet_client.get(detail_url(shared)).content.decode()
+    assert "kuřecí maso" in content
+    assert "Potravní alergie“ (" not in content
+
+
+def test_new_animal_has_no_preselected_physiological_state(owner_client):
+    """A puppy must not end up as an adult by leaving a default (docs/09 §9.2)."""
+    content = owner_client.get(reverse("animals:create")).content.decode()
+    select = re.search(r'<select name="physiological_state".*?</select>', content, re.S).group(0)
+    assert 'value="" selected' in select
+    assert 'value="MAINTENANCE" selected' not in select
+
+    data = {**ANIMAL_DATA, "physiological_state": ""}
+    response = owner_client.post(reverse("animals:create"), data)
+    assert response.status_code == 200
+    assert not Animal.objects.exists()
+
+
+def test_edit_form_keeps_the_stored_physiological_state(owner_client, user, make_animal):
+    animal = make_animal(user)
+    content = owner_client.get(reverse("animals:edit", args=[animal.uuid])).content.decode()
+    assert 'value="MAINTENANCE" selected' in content
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"species": "CAT", "size_category": "", "target_weight_kg": "10"},
+     {"sex": "FEMALE", "physiological_state": "GESTATION"}],
+    ids=["species", "state"],
+)
+def test_owner_change_of_species_or_state_resets_confirmation(client, user, vet_user, make_animal,
+                                                              change):
+    animal = make_animal(user, target_weight_kg=Decimal("10"))
+    AnimalShare.objects.create(animal=animal, vet=vet_user, granted_by=user)
+    client.force_login(vet_user)
+    confirm(client, animal, value="10")
+    client.force_login(user)
+    data = {**ANIMAL_DATA, "name": "Rex", "sex": "MALE", "target_weight_kg": "10", **change}
+
+    response = client.post(reverse("animals:edit", args=[animal.uuid]), data)
+
+    assert response.status_code == 302
+    animal.refresh_from_db()
+    assert animal.target_weight_status == TargetWeightStatus.UNVERIFIED
+    assert animal.target_weight_confirmed_by is None
+
+
+def test_removing_the_vet_role_cancels_that_vets_confirmations(client, user, vet_user, shared):
+    client.force_login(vet_user)
+    confirm(client, shared)
+    shared.refresh_from_db()
+    assert shared.target_weight_confirmed
+
+    vet_user.groups.clear()
+
+    shared.refresh_from_db()
+    assert shared.target_weight_status == TargetWeightStatus.UNVERIFIED
+    assert shared.target_weight_confirmed_by is None
+
+
+def test_removing_a_user_from_the_vet_group_side(client, user, vet_user, shared):
+    from django.contrib.auth.models import Group
+
+    client.force_login(vet_user)
+    confirm(client, shared)
+    Group.objects.get(name=Role.VET).user_set.remove(vet_user)
+    shared.refresh_from_db()
+    assert shared.target_weight_status == TargetWeightStatus.UNVERIFIED
+
+
+def test_other_role_changes_keep_confirmations(client, user, vet_user, shared):
+    from django.contrib.auth.models import Group
+
+    client.force_login(vet_user)
+    confirm(client, shared)
+    vet_user.groups.remove(Group.objects.get_or_create(name=Role.DATA_CURATOR)[0])
+    vet_user.groups.add(Group.objects.get_or_create(name=Role.OWNER)[0])
+    shared.refresh_from_db()
+    assert shared.target_weight_status == TargetWeightStatus.VET_CONFIRMED
+
+
+def test_attention_panel_shows_each_level_once(owner_client, user, make_animal, make_measurement):
+    """docs/08 §8.6 label once per level, then the reasons, so screen readers do not repeat it."""
+    from animals.models import PhysiologicalState, Sex
+
+    animal = make_animal(
+        user, sex=Sex.FEMALE, physiological_state=PhysiologicalState.LACTATION
+    )
+    make_measurement(animal, bcs=2)
+    AnimalHealthCondition.objects.create(
+        animal=animal, condition=HealthCondition.objects.get(code="FOOD_ALLERGY")
+    )
+    content = owner_client.get(detail_url(animal)).content.decode()
+    panel = content[content.index('id="attention-title"') : content.index("notice__footnote")]
+
+    assert panel.count("Automatický výpočet nelze doporučit") == 1
+    assert panel.count("Vyžaduje odborné posouzení") == 1
+    reasons = re.findall(r"<li>(.*?)</li>", panel, re.S)
+    assert len(reasons) == 3
+    assert not any("nelze doporučit" in reason for reason in reasons)
+    assert panel.index("Automatický výpočet") < panel.index("Laktace:")
+    assert panel.index("Laktace:") < panel.index("Vyžaduje odborné posouzení")
+    assert "nutriční kalkulačka zatím není k dispozici" in " ".join(panel.split())

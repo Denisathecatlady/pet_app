@@ -57,7 +57,8 @@ class AnimalForm(forms.ModelForm):
         required=False,
         help_text=(
             "Oddělte čárkou, např. kuřecí maso, hovězí. Aplikace položky jen eviduje "
-            "a nijak je nevyhodnocuje."
+            "a nijak je nevyhodnocuje. Potravní alergii zjištěnou veterinárním lékařem "
+            "zadejte také jako zdravotní stav „Potravní alergie“."
         ),
     )
 
@@ -88,14 +89,16 @@ class AnimalForm(forms.ModelForm):
             "birth_date": "Pokud přesné datum neznáte, zadejte odhad a zaškrtněte políčko níže.",
             "size_category": "Jen u psů. U koček nechte prázdné.",
             "physiological_state": (
-                "Pro růst, březost a laktaci aplikace doporučení nenabízí: výživu má "
-                "naplánovat veterinární lékař nebo veterinární nutriční specialista."
+                "Štěně nebo kotě, které ještě roste, má stav „růst“. Pro růst, březost "
+                "a laktaci aplikace doporučení nenabízí: výživu má naplánovat veterinární "
+                "lékař nebo veterinární nutriční specialista."
             ),
             "activity_level": "Vyberte popis, který nejlépe odpovídá běžnému dni zvířete.",
             "expected_adult_weight_kg": "Nepovinné. Užitečné hlavně u rostoucích zvířat.",
             "target_weight_kg": (
                 "Nepovinné. Zadaná cílová hmotnost je orientační; ideální hmotnost by měl "
-                "potvrdit veterinář podle BCS. Změnou hodnoty se zruší případné potvrzení."
+                "potvrdit veterinář podle BCS. Změnou hodnoty, druhu nebo fyziologického "
+                "stavu se zruší případné potvrzení."
             ),
             "current_feeding": "Čím a jak zvíře nyní krmíte (volný text).",
         }
@@ -113,17 +116,17 @@ class AnimalForm(forms.ModelForm):
         for name in ("expected_adult_weight_kg", "target_weight_kg"):
             self.fields[name].localize = True
             self.initial[name] = _trimmed(self.initial.get(name))
-        for name in ("species", "sex", "activity_level"):
+        choose = ["species", "sex", "activity_level"]
+        if self.instance.pk is None:
+            # A new animal has no preselected state: an owner of a puppy or kitten must
+            # not end up in "adult" by leaving the default (docs/09 §9.2, growth).
+            choose.append("physiological_state")
+            self.initial["physiological_state"] = None
+        for name in choose:
             _with_empty_label(self.fields[name], "— vyberte —")
         _with_empty_label(self.fields["size_category"], "— nezadáno —")
-
-    def clean(self) -> dict[str, Any]:
-        cleaned = super().clean()
-        # docs/05 §5.3: an owner's change makes the target weight orientational again.
-        # Done before model validation, which checks the confirmation constraint.
-        if self.instance.pk and "target_weight_kg" in self.changed_data:
-            self.instance.reset_target_weight_confirmation()
-        return cleaned
+        # Changing the target weight, species or state cancels a vet's confirmation:
+        # Animal.clean() does it, so it applies to the admin as well (docs/05 §5.3).
 
 
 BCS_CHOICES = [("", "— nezadáno —")] + [
@@ -181,8 +184,8 @@ class ConditionForm(forms.ModelForm):
         labels = {
             "condition": "Zdravotní stav",
             "diagnosed_by_vet": "Stav diagnostikoval veterinární lékař",
-            "since": "Od kdy (nepovinné)",
-            "vet_diet_restrictions": "Omezení stravy podle veterináře",
+            "since": "Od kdy",
+            "vet_diet_restrictions": "Omezení stravy podle veterinárního lékaře",
         }
         help_texts = {
             "vet_diet_restrictions": (
@@ -215,7 +218,7 @@ class ShareForm(forms.Form):
     email = forms.EmailField(
         label="E-mail účtu veterinárního lékaře",
         max_length=254,
-        help_text="Veterinář musí mít v aplikaci účet s rolí veterinárního lékaře.",
+        help_text="Veterinární lékař musí mít v aplikaci účet s rolí veterinárního lékaře.",
         widget=forms.EmailInput(attrs={"autocomplete": "off"}),
     )
 

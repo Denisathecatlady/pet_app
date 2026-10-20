@@ -5,7 +5,13 @@
   <h1>Účet byl smazán</h1>
   <div class="notice notice--success" role="status">
     <span class="notice__icon" aria-hidden="true">✓</span>
-    <p>Váš účet a všechna data, která jste zadali, jsme odstranili a odhlásili jsme vás.</p>
+    <div>
+      <p>Váš účet a vaše data jsme odstranili a odhlásili jsme vás.</p>
+      <p>Pokud jste měli roli veterinárního lékaře, měření, která jste zapsali u sdílených
+      zvířat, zůstala majitelům bez vazby na váš účet. Ze záloh databáze zmizí údaje až po
+      uplynutí doby jejich uchování (viz <a href="{% url 'core:privacy' %}">Ochrana osobních
+      údajů</a>).</p>
+    </div>
   </div>
   <p><a href="{% url 'core:home' %}">Zpět na úvodní stránku</a></p>
 </div>

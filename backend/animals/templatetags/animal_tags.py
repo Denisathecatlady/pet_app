@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from itertools import groupby
 
 from django import template
 
@@ -30,10 +31,20 @@ def attention_badge(attention: Attention, text: str = "") -> dict[str, str]:
 
 
 @register.inclusion_tag("animals/includes/attention_panel.html")
-def attention_panel(attention: Attention) -> dict[str, object]:
-    """Render the attention level with all its reasons (docs/08 §8.6)."""
+def attention_panel(attention: Attention, for_owner: bool = True) -> dict[str, object]:
+    """Render the attention level with its reasons grouped by level (docs/08 §8.6).
+
+    Each level present is shown once as a badge (icon + text + colour) followed by the
+    reasons of that level, most severe first, so the level text is not repeated for
+    every reason. ``for_owner`` picks the "what next" advice: owners are sent to a vet,
+    a shared vet gets advice written for a vet.
+    """
     style = attention_badge(attention)
-    return {**style, "level": attention.level, "reasons": attention.reasons}
+    groups = [
+        {**attention_badge(Attention(level, ())), "texts": [reason.text for reason in reasons]}
+        for level, reasons in groupby(attention.reasons, key=lambda reason: reason.level)
+    ]
+    return {**style, "level": attention.level, "groups": groups, "for_owner": for_owner}
 
 
 @register.filter

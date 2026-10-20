@@ -1,21 +1,30 @@
-{% load status %}
 <section class="notice notice--{{ css }} attention" aria-labelledby="attention-title">
   <div>
     <h2 id="attention-title" class="notice__title">Upozornění</h2>
-    <p>{% include "core/includes/status_badge.html" with text="" %}</p>
-    {% if reasons %}
-      <ul class="reasons">
-        {% for reason in reasons %}
-          <li>{% status_badge reason.level %} {{ reason.text }}</li>
-        {% endfor %}
-      </ul>
+    {% if groups %}
+      {% for group in groups %}
+        <h3 class="attention__level">{% include "core/includes/status_badge.html" with css=group.css icon=group.icon label=group.label text="" %}</h3>
+        <ul class="reasons">
+          {% for text in group.texts %}<li>{{ text }}</li>{% endfor %}
+        </ul>
+      {% endfor %}
+      {% if level == "BLOCKED" %}
+        <p>Pro zvíře v tomto stavu aplikace automatický výpočet dávky nenabídne (nutriční
+        kalkulačka zatím není k dispozici).</p>
+      {% endif %}
+      {% if level == "BLOCKED" or level == "EXPERT_REQUIRED" %}
+        {% if for_owner %}
+          <p><strong>Co dělat dál:</strong> poraďte se s veterinárním lékařem, nejlépe
+          s veterinárním nutričním specialistou, a vezměte s sebou záznamy z této stránky.</p>
+        {% else %}
+          <p><strong>Pro veterinárního lékaře:</strong> zvíře je v pásmu, kde má výživu
+          naplánovat veterinární lékař, případně veterinární nutriční specialista.</p>
+        {% endif %}
+      {% endif %}
     {% else %}
+      <p>{% include "core/includes/status_badge.html" with text="" %}</p>
       <p>V zadaných údajích aplikace nenašla nic, na co by měla upozornit. Neznamená to, že je
       zvíře zdravé nebo že je jeho strava vhodná.</p>
-    {% endif %}
-    {% if level == "BLOCKED" or level == "EXPERT_REQUIRED" %}
-      <p><strong>Co dělat dál:</strong> poraďte se s veterinárním lékařem, nejlépe
-      s veterinárním nutričním specialistou, a vezměte s sebou záznamy z této stránky.</p>
     {% endif %}
     <p class="notice__footnote">Upozornění vychází jen z údajů zadaných v aplikaci. Není úplným
     posouzením zdravotního stavu ani výživy a nenahrazuje veterinární vyšetření.</p>

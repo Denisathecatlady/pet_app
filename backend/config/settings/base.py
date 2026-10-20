@@ -36,6 +36,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "core.middleware.NoStoreForSignedInUsersMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "simple_history.middleware.HistoryRequestMiddleware",
@@ -57,6 +58,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "core.context_processors.contact",
             ],
         },
     },
@@ -98,8 +100,16 @@ LOGOUT_REDIRECT_URL = "core:home"
 
 # Validity of password reset and account activation links (seconds).
 PASSWORD_RESET_TIMEOUT = 24 * 60 * 60
-# Minimum gap between two account e-mails (activation, notices, password reset) to one user.
+# Minimum gap between two account e-mails of one kind (activation, notices, password reset)
+# to one user, and the maximum of all account e-mails to one user in 24 hours.
 ACCOUNT_EMAIL_THROTTLE_SECONDS = 120
+ACCOUNT_EMAIL_DAILY_LIMIT = 10
+# Send account e-mails after the response (accounts.services.deliver). Production turns it
+# on so that response time does not reveal which addresses have an account.
+ACCOUNT_EMAIL_IN_BACKGROUND = False
+# Registrations not activated within this time are deleted by
+# ``manage.py purge_pending_accounts`` (working value, docs/12 §12.8 for the lawyer).
+PENDING_ACCOUNT_RETENTION = timedelta(days=7)
 
 # --- Login rate limiting (django-axes 8) --------------------------------------------------
 LOGIN_FAILURE_LIMIT = 5
@@ -126,6 +136,8 @@ AXES_SENSITIVE_PARAMETERS = [
     "csrfmiddlewaretoken",
 ]
 # Number of trusted reverse proxies that append to X-Forwarded-For (0 = use REMOTE_ADDR).
+# Behind a proxy it must be set (prod.py refuses 0 with a proxy SSL header): otherwise every
+# client has the proxy's address and the lockout applies to the e-mail alone.
 TRUSTED_PROXY_COUNT = 0
 
 # --- Sessions, cookies and browser security -----------------------------------------------
@@ -160,7 +172,10 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = REPO_DIR / "staticfiles"
 
-# --- E-mail ---------------------------------------------------------------------------------
+# --- E-mail and contact --------------------------------------------------------------------
+# Address of the application administrator shown to users (e.g. how to get the vet role).
+# Empty shows a placeholder for the operator to fill in.
+CONTACT_EMAIL = ""
 DEFAULT_FROM_EMAIL = "BARF Nutri <noreply@localhost>"
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 EMAIL_SUBJECT_PREFIX = "[BARF Nutri] "

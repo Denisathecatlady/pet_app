@@ -22,6 +22,7 @@ from . import services
 from .export import build_export
 from .forms import (
     AccountDeleteForm,
+    ActivationForm,
     LoginForm,
     PasswordChangeForm,
     PasswordResetForm,
@@ -56,17 +57,25 @@ def register_done(request: HttpRequest) -> HttpResponse:
     )
 
 
+@never_cache
+@sensitive_post_parameters("password")
 @require_http_methods(["GET", "POST"])
 def activate(request: HttpRequest, uidb64: str, token: str) -> HttpResponse:
-    """GET shows a confirmation button, POST activates (link prefetchers must not activate)."""
+    """GET shows the form, POST with the registration password activates.
+
+    GET never activates (link prefetchers). Asking for the password means that only
+    the person who chose it can activate, never a mailbox owner who did not
+    register (account pre-hijacking, see ``services.register``).
+    """
     user = services.user_for_activation(uidb64, token)
     if user is None:
         return render(request, "accounts/activation_invalid.html", status=400)
-    if request.method == "POST":
+    form = ActivationForm(request.POST or None, user=user)
+    if request.method == "POST" and form.is_valid():
         services.activate(user)
         messages.success(request, "Účet je aktivní. Nyní se můžete přihlásit.")
         return redirect("accounts:login")
-    return render(request, "accounts/activate.html", {"activation_email": user.email})
+    return render(request, "accounts/activate.html", {"activation_email": user.email, "form": form})
 
 
 @require_http_methods(["GET", "POST"])

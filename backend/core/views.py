@@ -1,5 +1,6 @@
 """Public pages and the signed-in overview."""
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
@@ -34,4 +35,5 @@ def terms(request: HttpRequest) -> HttpResponse:
 
 def privacy(request: HttpRequest) -> HttpResponse:
     """Privacy notice (DRAFT placeholder, to be written by a lawyer)."""
-    return render(request, "core/privacy.html")
+    context = {"pending_retention_days": settings.PENDING_ACCOUNT_RETENTION.days}
+    return render(request, "core/privacy.html", context)

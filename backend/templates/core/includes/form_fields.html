@@ -2,11 +2,12 @@
 Renders a form: error summary, non-field errors and every field with its label,
 help text and errors (Django links them with aria-describedby / aria-invalid).
 {% endcomment %}
+{% load form_tags %}
 {% if form.errors %}
   <div class="notice notice--error" role="alert">
     <span class="notice__icon" aria-hidden="true">⛔</span>
     <div>
-      <p><strong>Formulář obsahuje chyby.</strong> Opravte prosím označená pole.</p>
+      <p><strong>Formulář obsahuje chyby.</strong>{% if form|has_field_errors %} Opravte prosím označená pole.{% endif %}</p>
       {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
     </div>
   </div>

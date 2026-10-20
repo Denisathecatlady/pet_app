@@ -39,6 +39,7 @@ OPTIONAL_VARS = (
     "DJANGO_EMAIL_USE_TLS",
     "DJANGO_EMAIL_USE_SSL",
     "DJANGO_DEFAULT_FROM_EMAIL",
+    "DJANGO_CONTACT_EMAIL",
     "DJANGO_LOG_LEVEL",
 )
 
@@ -138,6 +139,11 @@ def test_base_session_and_browser_security():
     assert base.USE_TZ is True
     assert base.DEFAULT_AUTO_FIELD == "django.db.models.BigAutoField"
     assert not hasattr(base, "SECRET_KEY")
+    # Pages of signed-in users are never cached; the middleware needs request.user.
+    middleware = base.MIDDLEWARE
+    assert middleware.index("core.middleware.NoStoreForSignedInUsersMiddleware") > middleware.index(
+        "django.contrib.auth.middleware.AuthenticationMiddleware"
+    )
 
 
 # --- Production settings -----------------------------------------------------------------
@@ -186,6 +192,10 @@ def test_prod_security_settings(monkeypatch):
     assert "SECURE_PROXY_SSL_HEADER" not in prod
     assert prod["PASSWORD_HASHERS"][0] == "django.contrib.auth.hashers.Argon2PasswordHasher"
     assert prod["EMAIL_BACKEND"] == "django.core.mail.backends.smtp.EmailBackend"
+    # SMTP after the response (no enumeration by timing) and e-mail limits shared by workers.
+    assert prod["ACCOUNT_EMAIL_IN_BACKGROUND"] is True
+    assert prod["CACHES"]["default"]["BACKEND"] == "django.core.cache.backends.db.DatabaseCache"
+    assert prod["CONTACT_EMAIL"] == ""
     assert prod["LOGGING"]["handlers"]["stdout"]["stream"] == "ext://sys.stdout"
     database = prod["DATABASES"]["default"]
     assert (database["NAME"], database["USER"], database["HOST"], database["PORT"]) == (
@@ -209,6 +219,7 @@ def test_prod_optional_settings_from_env(monkeypatch):
         DJANGO_EMAIL_USE_TLS="false",
         DJANGO_EMAIL_USE_SSL="true",
         DJANGO_DEFAULT_FROM_EMAIL="BARF Nutri <info@example.cz>",
+        DJANGO_CONTACT_EMAIL="podpora@example.cz",
     )
 
     assert prod["SECURE_HSTS_PRELOAD"] is True
@@ -222,6 +233,13 @@ def test_prod_optional_settings_from_env(monkeypatch):
         True,
     )
     assert prod["DEFAULT_FROM_EMAIL"] == prod["SERVER_EMAIL"] == "BARF Nutri <info@example.cz>"
+    assert prod["CONTACT_EMAIL"] == "podpora@example.cz"
+
+
+def test_prod_refuses_a_proxy_without_trusted_proxy_count(monkeypatch):
+    """Behind a proxy every visitor would share its address and lock each other out."""
+    with pytest.raises(ImproperlyConfigured, match="DJANGO_TRUSTED_PROXY_COUNT"):
+        load_prod(monkeypatch, DJANGO_SECURE_PROXY_SSL_HEADER="HTTP_X_FORWARDED_PROTO,https")
 
 
 @pytest.mark.parametrize(

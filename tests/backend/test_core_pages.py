@@ -1,10 +1,12 @@
 """Public pages, layout, error pages, security headers and status badges."""
 
+import re
+
 import pytest
 from django.core.exceptions import PermissionDenied
 from django.template import Context, Template
 from django.template.loader import render_to_string
-from django.test import RequestFactory, override_settings
+from django.test import Client, RequestFactory, override_settings
 from django.urls import reverse
 from django.views import defaults
 
@@ -183,3 +185,76 @@ def test_stylesheet_defines_levels_schemes_and_focus():
     for style in WARNING_LEVELS.values():
         assert f".status--{style.css}" in css
         assert f".notice--{style.css}" in css
+
+
+# --- Accessible form errors (form_fields.html) -------------------------------------------------
+
+
+def test_field_errors_are_linked_to_their_inputs(client):
+    """Text input and the custom checkbox branch: aria-invalid + aria-describedby → error."""
+    response = client.post(
+        reverse("accounts:register"),
+        {"email": "x@example.cz", "password1": "Kopretina-Rybník-2026", "password2": "jiné"},
+    )
+    content = response.content.decode()
+
+    for name in ("password2", "consent"):
+        assert f'aria-describedby="id_{name}_error"' in content, name
+        assert f'<ul class="errorlist" id="id_{name}_error">' in content, name
+    for tag in re.findall(r"<input[^>]*>", content):
+        if 'name="password2"' in tag or 'name="consent"' in tag:
+            assert 'aria-invalid="true"' in tag, tag
+        if 'name="email"' in tag:
+            assert "aria-invalid" not in tag, tag
+    assert "Opravte prosím označená pole." in content
+
+
+def test_error_summary_without_field_errors_does_not_point_to_fields(client, user):
+    response = client.post(reverse("accounts:login"), {"email": user.email, "password": "špatně"})
+    content = response.content.decode()
+    assert "Formulář obsahuje chyby." in content
+    assert "Zadejte správný e-mail a heslo" in content
+    assert "Opravte prosím označená pole." not in content
+    assert 'aria-invalid="true"' not in content
+
+
+def test_checkbox_help_text_is_linked(client):
+    from django import forms
+
+    class SampleForm(forms.Form):
+        agree = forms.BooleanField(label="Souhlas", help_text="Vysvětlení")
+
+    html = render_to_string("core/includes/form_fields.html", {"form": SampleForm()})
+    assert 'aria-describedby="id_agree_helptext"' in html
+    assert 'id="id_agree_helptext"' in html
+
+
+def test_decorative_css_glyphs_are_hidden_from_screen_readers():
+    css = (BASE_DIR / "static" / "css" / "app.css").read_text(encoding="utf-8")
+    for glyph in ("✓", "✕", "⛔ ", " *"):
+        assert f'content: "{glyph}" / "";' in css, glyph
+
+
+# --- Caching and contact ------------------------------------------------------------------------
+
+
+def test_pages_of_signed_in_users_are_not_cached(logged_in_client, client):
+    for url in (reverse("core:dashboard"), reverse("accounts:profile")):
+        cache_control = logged_in_client.get(url)["Cache-Control"]
+        assert "no-store" in cache_control and "private" in cache_control
+    # Public pages for anonymous visitors stay cacheable.
+    assert not Client().get(reverse("core:home")).has_header("Cache-Control")
+
+
+def test_footer_shows_the_administrator_contact(client, settings):
+    settings.CONTACT_EMAIL = ""
+    assert "[DOPLNÍ PROVOZOVATEL: e-mail správce aplikace]" in client.get("/").content.decode()
+    settings.CONTACT_EMAIL = "podpora@example.cz"
+    assert 'href="mailto:podpora@example.cz"' in client.get("/").content.decode()
+
+
+def test_czech_wording_of_error_and_landing_pages(client):
+    home = client.get(reverse("core:home")).content.decode()
+    assert "vysvětlí, proč a na koho se obrátit" in home
+    forbidden = render_to_string("403.html")
+    assert "Pokud si myslíte, že jde o chybu" in forbidden

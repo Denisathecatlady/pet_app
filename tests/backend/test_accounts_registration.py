@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 
 import pytest
+from django.core.cache import cache
 from django.urls import reverse
 
 from accounts.models import User
@@ -25,6 +26,10 @@ def register(client, email="nova@example.cz", password=PASSWORD, password2=None,
 
 def login(client, email, password=PASSWORD):
     return client.post(LOGIN_URL, {"email": email, "password": password})
+
+
+def activate(client, link, password=PASSWORD):
+    return client.post(link, {"password": password})
 
 
 def test_registration_page_has_consent_with_links(client):
@@ -105,9 +110,11 @@ def test_activation_flow(client, mailoutbox):
     confirm = client.get(link)
     assert confirm.status_code == 200
     assert "Aktivovat účet" in confirm.content.decode()
+    assert 'name="password"' in confirm.content.decode()
+    assert "no-store" in confirm["Cache-Control"]
     assert not User.objects.get().is_active, "GET must not activate (link prefetchers)"
 
-    response = client.post(link)
+    response = activate(client, link)
     assert response.status_code == 302
     assert response["Location"] == LOGIN_URL
     user = User.objects.get()
@@ -120,10 +127,62 @@ def test_activation_flow(client, mailoutbox):
 def test_activation_link_is_one_time(client, mailoutbox):
     register(client)
     link = extract_link(mailoutbox[0].body)
-    client.post(link)
+    activate(client, link)
 
     assert client.get(link).status_code == 400
-    assert client.post(link).status_code == 400
+    assert activate(client, link).status_code == 400
+
+
+@pytest.mark.parametrize("password", [None, OTHER_PASSWORD])
+def test_activation_requires_the_registration_password(client, mailoutbox, password):
+    register(client)
+    link = extract_link(mailoutbox[0].body)
+
+    response = client.post(link, {} if password is None else {"password": password})
+
+    assert response.status_code == 200
+    if password:
+        assert "Heslo nesouhlasí s heslem z poslední registrace" in response.content.decode()
+    assert not User.objects.get().is_active
+
+
+# --- Account pre-hijacking: someone registers another person's e-mail first ----------------
+
+
+def test_attacker_who_registers_first_cannot_set_the_password(client, mailoutbox):
+    register(client, email="victim@example.cz", password=OTHER_PASSWORD)  # attacker
+    cache.clear()  # the e-mail limit window has passed
+    mailoutbox.clear()
+
+    register(client, email="victim@example.cz", password=PASSWORD)  # the real owner
+    response = activate(client, extract_link(mailoutbox[0].body), PASSWORD)
+
+    assert response.status_code == 302
+    user = User.objects.get()
+    assert user.is_active
+    assert user.check_password(PASSWORD) and not user.check_password(OTHER_PASSWORD)
+    assert login(client, "victim@example.cz", OTHER_PASSWORD).status_code == 200
+    assert "_auth_user_id" not in client.session
+
+
+def test_attacker_who_registers_last_cannot_get_an_active_account(client, mailoutbox):
+    register(client, email="victim@example.cz", password=PASSWORD)  # the real owner
+    link = extract_link(mailoutbox[0].body)
+    cache.clear()
+    register(client, email="victim@example.cz", password=OTHER_PASSWORD)  # attacker
+    assert len(mailoutbox) == 2  # both links go to the owner's mailbox
+
+    # The owner knows only their own password: neither link activates the account.
+    for message in mailoutbox:
+        assert activate(client, extract_link(message.body), PASSWORD).status_code == 200
+    assert not User.objects.get().is_active
+
+    # Registering again restores the owner's password and the account can be activated.
+    cache.clear()
+    register(client, email="victim@example.cz", password=PASSWORD)
+    assert activate(client, link, PASSWORD).status_code == 302
+    user = User.objects.get()
+    assert user.is_active and user.check_password(PASSWORD)
 
 
 @pytest.mark.parametrize(
@@ -145,7 +204,7 @@ def test_tampered_activation_token_is_rejected(client, mailoutbox):
     link = extract_link(mailoutbox[0].body)
     tampered = link[:-2] + ("a/" if link[-2] != "a" else "b/")
 
-    assert client.post(tampered).status_code == 400
+    assert activate(client, tampered).status_code == 400
     assert not User.objects.get().is_active
 
 
@@ -155,7 +214,7 @@ def test_expired_activation_link_is_rejected(client, mailoutbox, monkeypatch):
     later = datetime.now() + timedelta(days=2)
     monkeypatch.setattr(ActivationTokenGenerator, "_now", lambda self: later)
 
-    assert client.post(link).status_code == 400
+    assert activate(client, link).status_code == 400
     assert not User.objects.get().is_active
 
 
@@ -168,7 +227,7 @@ def test_admin_deactivated_user_cannot_reactivate_with_old_link(client, mailoutb
     user.is_active = False
     user.save()  # ... and later deactivates
 
-    assert client.post(link).status_code == 400
+    assert activate(client, link).status_code == 400
     user.refresh_from_db()
     assert not user.is_active
 
@@ -188,9 +247,16 @@ def test_registering_existing_email_sends_notice_and_keeps_password(client, user
 
 def test_registering_pending_email_resends_activation(client, mailoutbox):
     register(client)
-    register(client)  # within the throttle window: no second e-mail
+    register(client, password=OTHER_PASSWORD)  # within the throttle window: no second e-mail
     assert len(mailoutbox) == 1
     assert User.objects.count() == 1
+    # The latest registration's password applies (activation asks for it).
+    assert User.objects.get().check_password(OTHER_PASSWORD)
+
+    cache.clear()
+    register(client)
+    assert len(mailoutbox) == 2
+    assert User.objects.get().check_password(PASSWORD)
 
 
 def test_registration_redirects_signed_in_user(logged_in_client):
@@ -217,7 +283,7 @@ def test_resend_activation_for_pending_account(client, make_user, mailoutbox):
     assert response["Location"] == reverse("accounts:resend_activation_done")
     assert len(mailoutbox) == 1
     link = extract_link(mailoutbox[0].body)
-    client.post(link)
+    activate(client, link)
     assert User.objects.get(email="pending@example.cz").is_active
 
 
@@ -252,15 +318,23 @@ def test_resend_activation_is_throttled(client, make_user, mailoutbox):
 
 
 def test_email_delivery_failure_does_not_change_response(client, mailoutbox, monkeypatch):
-    def broken_send_mail(*args, **kwargs):
+    def broken_send(self, *args, **kwargs):
         raise ConnectionError("SMTP down")
 
-    monkeypatch.setattr("accounts.services.send_mail", broken_send_mail)
+    monkeypatch.setattr("django.core.mail.EmailMessage.send", broken_send)
 
     response = register(client)
 
     assert response.status_code == 302
     assert response["Location"] == reverse("accounts:register_done")
+
+
+def test_all_password_errors_show_after_one_submission(client):
+    response = register(client, password="a", password2="b")
+
+    form = response.context["form"]
+    assert form.errors["password2"] == ["Hesla se neshodují."]
+    assert any("příliš krátké" in error for error in form.errors["password1"])
 
 
 def test_short_password_error_is_czech(client):

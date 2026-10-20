@@ -1,7 +1,7 @@
 {% autoescape off %}Dobrý den,
 
 někdo (pravděpodobně vy) založil v aplikaci BARF Nutri účet s touto e-mailovou adresou.
-Účet aktivujete otevřením tohoto odkazu a potvrzením tlačítkem:
+Účet aktivujete otevřením tohoto odkazu a zadáním hesla, které jste zvolili při registraci:
 
 {{ activation_url }}
 

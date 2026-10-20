@@ -14,11 +14,22 @@ from .models import (
 
 @admin.register(Animal)
 class AnimalAdmin(SimpleHistoryAdmin):
+    """Animals. Only a vet with a share confirms a target weight (docs/05 §5.3), so the
+    confirmation is read-only here; changing the target weight, species or state in the
+    admin cancels it (``Animal.clean``)."""
+
     list_display = ("name", "species", "owner", "physiological_state", "target_weight_status")
     list_filter = ("species", "physiological_state", "target_weight_status")
     search_fields = ("name", "owner__email", "uuid")
-    raw_id_fields = ("owner", "target_weight_confirmed_by")
-    readonly_fields = ("uuid", "created_at", "updated_at")
+    raw_id_fields = ("owner",)
+    readonly_fields = (
+        "uuid",
+        "target_weight_status",
+        "target_weight_confirmed_by",
+        "target_weight_confirmed_at",
+        "created_at",
+        "updated_at",
+    )
 
 
 @admin.register(BodyMeasurement)

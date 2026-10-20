@@ -6,7 +6,7 @@
     <div><dt>Druh</dt><dd>{{ summary.animal.get_species_display }}</dd></div>
     <div><dt>Věk</dt><dd>{{ summary.age }}</dd></div>
     <div><dt>Poslední hmotnost</dt><dd>{% if summary.latest_weight %}{{ summary.latest_weight.weight_kg|kg }} ({{ summary.latest_weight.measured_on|short }}){% else %}nezadáno{% endif %}</dd></div>
-    <div><dt>Poslední BCS</dt><dd>{% if summary.latest_bcs %}{{ summary.latest_bcs.bcs }}/9 ({{ summary.latest_bcs.measured_on|short }}){% else %}nezadáno{% endif %}</dd></div>
+    <div><dt>Poslední BCS (tělesná kondice)</dt><dd>{% if summary.latest_bcs %}{{ summary.latest_bcs.bcs }}/9 ({{ summary.latest_bcs.measured_on|short }}){% else %}nezadáno{% endif %}</dd></div>
     {% if show_owner %}<div><dt>Majitel</dt><dd>{{ summary.animal.owner.email }}</dd></div>{% endif %}
   </dl>
 </li>

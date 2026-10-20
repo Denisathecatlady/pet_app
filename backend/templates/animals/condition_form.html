@@ -12,6 +12,7 @@
   {% if not item and not form.fields.condition.queryset.exists %}
     <p>U zvířete jsou zadané všechny zdravotní stavy ze seznamu.</p>
   {% else %}
+    <p class="hint">Pole označená hvězdičkou jsou povinná.</p>
     <form method="post" novalidate>
       {% csrf_token %}
       {% include "core/includes/form_fields.html" %}

@@ -6,17 +6,20 @@ always show the same message (no account enumeration).
 """
 
 import logging
+import threading
+from datetime import datetime
 
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group
 from django.core.cache import cache
-from django.core.mail import send_mail
+from django.core.mail import EmailMessage
 from django.db import IntegrityError, transaction
 from django.http import HttpRequest
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 
@@ -30,19 +33,57 @@ logger = logging.getLogger(__name__)
 # --- E-mails -----------------------------------------------------------------------------
 
 
+DAY_SECONDS = 24 * 60 * 60
+
+
 def claim_email_slot(kind: str, user: User) -> bool:
     """Return ``True`` if an e-mail of ``kind`` may be sent to ``user`` now.
 
-    At most one e-mail of each kind per ``settings.ACCOUNT_EMAIL_THROTTLE_SECONDS``
-    goes to one user, so the public forms cannot be used to flood a mailbox. The
-    limit lives in the cache (per process with the default local-memory cache).
+    The public forms must not be usable to flood a mailbox, so two limits apply:
+    at most one e-mail of each kind per ``settings.ACCOUNT_EMAIL_THROTTLE_SECONDS``
+    and at most ``settings.ACCOUNT_EMAIL_DAILY_LIMIT`` account e-mails of all kinds
+    per user in a 24-hour window. The counters live in the cache; production uses a
+    shared database cache, so the limits hold across worker processes.
     """
-    key = f"accounts:email:{kind}:{user.pk}"
-    return cache.add(key, True, timeout=settings.ACCOUNT_EMAIL_THROTTLE_SECONDS)
+    if not cache.add(
+        f"accounts:email:{kind}:{user.pk}", True, timeout=settings.ACCOUNT_EMAIL_THROTTLE_SECONDS
+    ):
+        return False
+    daily_key = f"accounts:email-day:{user.pk}"
+    cache.add(daily_key, 0, timeout=DAY_SECONDS)
+    try:
+        sent_today = cache.incr(daily_key)
+    except ValueError:  # the counter expired between add() and incr()
+        cache.set(daily_key, 1, timeout=DAY_SECONDS)
+        sent_today = 1
+    return sent_today <= settings.ACCOUNT_EMAIL_DAILY_LIMIT
+
+
+def _send_now(message: EmailMessage) -> None:
+    try:
+        message.send()
+    except Exception:
+        logger.exception("Sending account e-mail %r failed", message.subject)
+
+
+def deliver(message: EmailMessage) -> None:
+    """Send an account e-mail that was rendered in the request.
+
+    With ``settings.ACCOUNT_EMAIL_IN_BACKGROUND`` (production) the SMTP exchange runs
+    in a separate thread after this function returns. Pages that send an e-mail only
+    for existing accounts (password reset, new activation link) then answer as fast
+    as for unknown addresses, so response time does not reveal accounts. Delivery
+    errors are logged, never raised. The thread is not a daemon: a worker that shuts
+    down waits for it (at most ``EMAIL_TIMEOUT``).
+    """
+    if settings.ACCOUNT_EMAIL_IN_BACKGROUND:
+        threading.Thread(target=_send_now, args=(message,), name="account-email").start()
+    else:
+        _send_now(message)
 
 
 def _send(user: User, template_prefix: str, context: dict) -> None:
-    """Render ``<prefix>_subject.txt`` and ``<prefix>_body.txt`` and send them to ``user``.
+    """Render ``<prefix>_subject.txt`` and ``<prefix>_body.txt`` and deliver them to ``user``.
 
     Delivery errors are logged, not raised: the visitor must see the same page
     whether or not a message was sent.
@@ -51,10 +92,7 @@ def _send(user: User, template_prefix: str, context: dict) -> None:
     subject = render_to_string(f"{template_prefix}_subject.txt", context)
     subject = settings.EMAIL_SUBJECT_PREFIX + "".join(subject.splitlines()).strip()
     body = render_to_string(f"{template_prefix}_body.txt", context)
-    try:
-        send_mail(subject, body, None, [user.email])
-    except Exception:
-        logger.exception("Sending account e-mail %s to user %s failed", template_prefix, user.pk)
+    deliver(EmailMessage(subject, body, None, [user.email]))
 
 
 def send_activation_email(user: User, request: HttpRequest) -> None:
@@ -106,9 +144,13 @@ def register(email: str, password: str, request: HttpRequest) -> None:
 
     Inputs: e-mail and an already validated password. A new address gets an
     inactive account in the ``owner`` group and an activation e-mail. An address
-    that already has an account gets a notice (or, if still pending, a fresh
-    activation link) and its password is NOT changed. The password is hashed in
-    both branches so that response time does not reveal which one ran.
+    that already has an active (or deactivated) account gets a notice and its
+    password is NOT changed. An address still pending activation takes the password
+    of this latest registration and gets a fresh activation link: activation asks
+    for that password (:func:`activation_password_matches`), so an account
+    registered first by someone else can never be activated with their password.
+    The password is hashed in every branch so that response time does not reveal
+    which one ran.
     """
     email = UserManager.normalize_email(email)
     password_hash = make_password(password)
@@ -128,6 +170,8 @@ def register(email: str, password: str, request: HttpRequest) -> None:
             send_activation_email(user, request)
             return
     if existing.activation_pending and not existing.is_active:
+        existing.password = password_hash
+        existing.save(update_fields=["password"])
         send_activation_email(existing, request)
     else:
         send_already_registered_email(existing, request)
@@ -161,6 +205,16 @@ def user_for_activation(uidb64: str, token: str) -> User | None:
     return user
 
 
+def activation_password_matches(user: User, password: str) -> bool:
+    """Check the password entered on the activation page.
+
+    Activation needs both the link (proof of the mailbox) and the password of the
+    latest registration of that address (proof of who registered). Only the holder of
+    a valid link reaches this check, so it is not rate limited.
+    """
+    return user.check_password(password)
+
+
 def activate(user: User) -> None:
     """Activate a user returned by :func:`user_for_activation`."""
     user.is_active = True
@@ -182,14 +236,29 @@ def password_matches(request: HttpRequest, user: User, password: str) -> bool:
 
 
 def delete_account(user: User) -> None:
-    """Delete the user, all data that cascades from it, and their login records.
+    """Delete the user and all data that cascades from it, in one transaction.
 
-    django-axes keeps login logs by e-mail rather than by foreign key, so they are
-    removed explicitly. Runs in one transaction.
+    Records kept outside foreign keys (django-axes login records, the e-mail in the
+    admin log) are cleaned by the ``post_delete`` receivers in ``accounts.signals``,
+    so deleting a user in the admin removes them too.
     """
-    from axes.models import AccessAttempt, AccessFailureLog, AccessLog
-
     with transaction.atomic():
-        for model in (AccessLog, AccessAttempt, AccessFailureLog):
-            model.objects.filter(username=user.email).delete()
         user.delete()
+
+
+def purge_pending_accounts(*, now: datetime | None = None) -> int:
+    """Delete registrations never activated within ``settings.PENDING_ACCOUNT_RETENTION``.
+
+    Anyone can register any address; an unconfirmed registration is personal data of
+    a person who may never have agreed, so it is not kept. Accounts deactivated by
+    an administrator (``activation_pending`` false) are not touched.
+
+    Output: number of deleted accounts.
+    """
+    cutoff = (now or timezone.now()) - settings.PENDING_ACCOUNT_RETENTION
+    stale = User.objects.filter(activation_pending=True, is_active=False, date_joined__lt=cutoff)
+    deleted = 0
+    for user in stale:
+        delete_account(user)
+        deleted += 1
+    return deleted

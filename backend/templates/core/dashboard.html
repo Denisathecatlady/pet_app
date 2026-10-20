@@ -2,7 +2,21 @@
 {% block title %}Přehled{% endblock %}
 {% block content %}
 <h1>Přehled</h1>
-<p>Dobrý den{% if user.first_name %}, {{ user.first_name }}{% endif %}.</p>
+<p>Přihlášený účet: {% if user.get_full_name %}{{ user.get_full_name }} ({{ user.email }}){% else %}{{ user.email }}{% endif %}.</p>
+
+{% if is_vet %}
+  <section aria-labelledby="shared-title">
+    <h2 id="shared-title">Sdílená zvířata</h2>
+    {% if shared %}
+      <ul class="card-grid">
+        {% for summary in shared %}{% include "animals/includes/animal_card.html" with summary=summary show_owner=True %}{% endfor %}
+      </ul>
+    {% else %}
+      <p>Zatím s vámi žádný majitel nesdílí zvíře. Majitel vás přidá podle e-mailu vašeho
+      účtu ({{ user.email }}).</p>
+    {% endif %}
+  </section>
+{% endif %}
 
 <section aria-labelledby="own-title">
   <div class="section-header">
@@ -18,20 +32,6 @@
     a upozornění, která vyžadují pozornost.</p>
   {% endif %}
 </section>
-
-{% if is_vet %}
-  <section aria-labelledby="shared-title">
-    <h2 id="shared-title">Sdílená zvířata</h2>
-    {% if shared %}
-      <ul class="card-grid">
-        {% for summary in shared %}{% include "animals/includes/animal_card.html" with summary=summary show_owner=True %}{% endfor %}
-      </ul>
-    {% else %}
-      <p>Zatím s vámi žádný majitel nesdílí zvíře. Majitel vás přidá podle e-mailu vašeho
-      účtu ({{ user.email }}).</p>
-    {% endif %}
-  </section>
-{% endif %}
 
 <p class="hint">Upozornění u zvířat vycházejí jen ze zadaných údajů a nenahrazují veterinární
 vyšetření. Nutriční kalkulačka zatím není k dispozici.</p>

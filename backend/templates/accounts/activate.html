@@ -3,10 +3,14 @@
 {% block content %}
 <div class="narrow">
   <h1>Aktivace účtu</h1>
-  <p>Aktivujete účet <strong>{{ activation_email }}</strong>.</p>
-  <form method="post">
+  <p>Aktivujete účet <strong>{{ activation_email }}</strong>. Pro potvrzení zadejte heslo, které
+  jste zvolili při registraci.</p>
+  <form method="post" novalidate>
     {% csrf_token %}
+    {% include "core/includes/form_fields.html" %}
     <button type="submit" class="button">Aktivovat účet</button>
   </form>
+  <p class="hint">Heslo si nepamatujete? <a href="{% url 'accounts:register' %}">Zaregistrujte se
+  znovu</a> se stejnou adresou a aktivujte účet odkazem z nového e-mailu.</p>
 </div>
 {% endblock %}

@@ -298,13 +298,17 @@ main:focus {
   font-weight: 700;
 }
 
+/* Decorative glyphs: the second declaration gives them empty alternative text, so screen
+   readers do not announce them; browsers without that syntax keep the first one. */
 .checklist li::before {
   content: "✓";
+  content: "✓" / "";
   color: var(--color-success-fg);
 }
 
 .crosslist li::before {
   content: "✕";
+  content: "✕" / "";
   color: var(--color-blocked-fg);
 }
 
@@ -338,8 +342,10 @@ main:focus {
   margin-bottom: var(--space-1);
 }
 
+/* The input itself carries the "required" attribute for assistive technology. */
 .field label.required::after {
   content: " *";
+  content: " *" / "";
   color: var(--color-blocked-fg);
 }
 
@@ -400,6 +406,7 @@ main:focus {
 
 .errorlist li::before {
   content: "⛔ ";
+  content: "⛔ " / "";
 }
 
 .button,
@@ -573,6 +580,11 @@ button.button--danger {
 
 .notice__footnote {
   font-size: 0.9375rem;
+}
+
+.attention__level {
+  font-size: 1rem;
+  margin: var(--space-3) 0 var(--space-1);
 }
 
 .reasons {

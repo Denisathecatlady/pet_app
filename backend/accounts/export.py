@@ -66,10 +66,19 @@ def _iso(value: Any) -> str | None:
 
 
 def export_account(user: Any) -> dict[str, Any]:
-    """Exporter of the ``accounts`` app: profile, roles and login history (no password)."""
-    from axes.models import AccessLog
+    """Exporter of the ``accounts`` app: profile, roles and login records (no password).
+
+    Login records are kept by django-axes under the e-mail: ``login_history`` (successful
+    logins), ``failed_logins`` (current counters of failed attempts per IP address) and
+    ``failed_login_log`` (single failed attempts, only when
+    ``AXES_ENABLE_ACCESS_FAILURE_LOG`` is on). The data axes stores from the failed
+    request (GET and POST parameters) are never exported.
+    """
+    from axes.models import AccessAttempt, AccessFailureLog, AccessLog
 
     logins = AccessLog.objects.filter(username=user.email).order_by("attempt_time")
+    attempts = AccessAttempt.objects.filter(username=user.email).order_by("attempt_time")
+    failures = AccessFailureLog.objects.filter(username=user.email).order_by("attempt_time")
     return {
         "email": user.email,
         "first_name": user.first_name,
@@ -89,5 +98,23 @@ def export_account(user: Any) -> dict[str, Any]:
                 "user_agent": entry.user_agent,
             }
             for entry in logins
+        ],
+        "failed_logins": [
+            {
+                "last_attempt_at": _iso(entry.attempt_time),
+                "failures": entry.failures_since_start,
+                "ip_address": entry.ip_address,
+                "user_agent": entry.user_agent,
+            }
+            for entry in attempts
+        ],
+        "failed_login_log": [
+            {
+                "attempt_at": _iso(entry.attempt_time),
+                "ip_address": entry.ip_address,
+                "user_agent": entry.user_agent,
+                "locked_out": entry.locked_out,
+            }
+            for entry in failures
         ],
     }

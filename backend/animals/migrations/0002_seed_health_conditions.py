@@ -99,8 +99,17 @@ def seed(apps, schema_editor):
 
 
 def unseed(apps, schema_editor):
+    """Delete the seeded entries that no animal uses.
+
+    Entries recorded at an animal are protected (``on_delete=PROTECT``) and stay; going
+    back further (``migrate animals zero``) drops the whole table anyway.
+    """
     HealthCondition = apps.get_model("animals", "HealthCondition")
-    HealthCondition.objects.filter(code__in=[row[0] for row in CONDITIONS]).delete()
+    AnimalHealthCondition = apps.get_model("animals", "AnimalHealthCondition")
+    used = AnimalHealthCondition.objects.values("condition")
+    HealthCondition.objects.filter(code__in=[row[0] for row in CONDITIONS]).exclude(
+        pk__in=used
+    ).delete()
 
 
 class Migration(migrations.Migration):

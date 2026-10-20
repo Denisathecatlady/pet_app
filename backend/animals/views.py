@@ -51,16 +51,23 @@ def animal_create(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_GET
 def animal_detail(request: HttpRequest, animal_uuid: UUID) -> HttpResponse:
-    """Profile, attention level, target weight, measurements, conditions and shares."""
+    """Profile, attention level, target weight, measurements, conditions and shares.
+
+    Data minimisation (docs/12 §12.6): a shared vet sees the e-mail of another vet
+    (author of a measurement, confirmer of the target weight) only when it is their own.
+    """
     access = get_animal_for(request.user, animal_uuid, Action.VIEW)
     animal = access.animal
+    conditions = animal.conditions.select_related("condition")
     context = {
         "access": access,
         "animal": animal,
         "age": services.age_text(animal),
         "attention": services.attention(animal),
         "measurements": animal.measurements.select_related("created_by"),
-        "conditions": animal.conditions.select_related("condition"),
+        "conditions": conditions,
+        "suggest_food_allergy": bool(animal.allergies)
+        and not any(item.condition.code == "FOOD_ALLERGY" for item in conditions),
         "shares": (
             animal.shares.active().select_related("vet")
             if access.is_owner
@@ -73,15 +80,24 @@ def animal_detail(request: HttpRequest, animal_uuid: UUID) -> HttpResponse:
 @login_required
 @require_http_methods(["GET", "POST"])
 def animal_edit(request: HttpRequest, animal_uuid: UUID) -> HttpResponse:
-    """Edit the profile. Changing the target weight cancels a vet's confirmation."""
+    """Edit the profile. Changing the target weight, species or state cancels a confirmation.
+
+    A POST validates and saves the row locked with ``SELECT … FOR UPDATE``: a vet's
+    confirmation committed while the owner was editing is then compared and kept (or
+    cancelled by a real change), never overwritten with stale values.
+    """
     access = get_animal_for(request.user, animal_uuid, Action.EDIT)
-    # A separate instance: a rejected POST must not change what the page shows as saved.
-    instance = Animal.objects.get(pk=access.animal.pk)
-    form = AnimalForm(request.POST or None, instance=instance)
-    if request.method == "POST" and form.is_valid():
-        animal = form.save()
-        messages.success(request, "Změny byly uloženy.")
-        return redirect(animal)
+    if request.method == "POST":
+        with transaction.atomic():
+            # A separate instance: a rejected POST must not change what the page shows.
+            instance = Animal.objects.select_for_update().get(pk=access.animal.pk)
+            form = AnimalForm(request.POST, instance=instance)
+            if form.is_valid():
+                animal = form.save()
+                messages.success(request, "Změny byly uloženy.")
+                return redirect(animal)
+    else:
+        form = AnimalForm(instance=Animal.objects.get(pk=access.animal.pk))
     return render(request, "animals/animal_form.html", {"form": form, "animal": access.animal})
 
 
@@ -96,13 +112,17 @@ def animal_delete(request: HttpRequest, animal_uuid: UUID) -> HttpResponse:
         animal.delete()
         messages.success(request, f"Zvíře {name} a všechny jeho záznamy byly smazány.")
         return redirect("core:dashboard")
+    conditions = animal.conditions.count()
+    condition_noun = services.plural(
+        conditions, "zdravotní stav", "zdravotní stavy", "zdravotních stavů"
+    )
     context = {
         "animal": animal,
         "title": f"Smazat zvíře {animal.name}?",
         "details": [
             "Smaže se profil zvířete, "
             f"{animal.measurements.count()} měření, "
-            f"{animal.conditions.count()} zdravotních stavů, sdílení s veterináři "
+            f"{conditions} {condition_noun}, sdílení s veterinárními lékaři "
             "a historie změn těchto záznamů.",
             "Smazání je nevratné.",
         ],
@@ -112,6 +132,9 @@ def animal_delete(request: HttpRequest, animal_uuid: UUID) -> HttpResponse:
 
 
 # --- Measurements -----------------------------------------------------------------------------
+
+# "Měření se uloží jako posouzené …" (instrumental case of the assessor).
+ASSESSED_BY_TEXT = {Assessor.OWNER: "majitelem", Assessor.VET: "veterinárním lékařem"}
 
 
 @login_required
@@ -129,7 +152,7 @@ def measurement_add(request: HttpRequest, animal_uuid: UUID) -> HttpResponse:
     context = {
         "form": form,
         "animal": access.animal,
-        "assessor": instance.get_assessed_by_display(),
+        "assessed_by": ASSESSED_BY_TEXT[Assessor(assessor)],
     }
     return render(request, "animals/measurement_form.html", context)
 
@@ -249,14 +272,27 @@ def share_add(request: HttpRequest, animal_uuid: UUID) -> HttpResponse:
 
 
 @login_required
-@require_POST
+@require_http_methods(["GET", "POST"])
 def share_revoke(request: HttpRequest, animal_uuid: UUID, share_uuid: UUID) -> HttpResponse:
-    """End an active share (POST only). The vet loses access immediately."""
+    """Confirmation page (GET) and end of an active share (POST). The vet loses access now."""
     access = get_animal_for(request.user, animal_uuid, Action.MANAGE_SHARES)
     share = get_object_or_404(access.animal.shares.active().select_related("vet"), uuid=share_uuid)
-    services.revoke_share(share)
-    messages.success(request, f"Sdílení s {share.vet.email} bylo zrušeno.")
-    return redirect(access.animal)
+    if request.method == "POST":
+        services.revoke_share(share)
+        messages.success(request, f"Sdílení s {share.vet.email} bylo zrušeno.")
+        return redirect(access.animal)
+    context = {
+        "animal": access.animal,
+        "title": f"Zrušit sdílení s {share.vet.email}?",
+        "details": [
+            f"Veterinární lékař {share.vet.email} ihned ztratí přístup ke zvířeti "
+            f"{access.animal.name}. Měření, která zapsal, zůstanou.",
+            "Znovu sdílet můžete kdykoli zadáním jeho e-mailu.",
+        ],
+        "button": "Zrušit sdílení",
+        "cancel": "Ponechat sdílení",
+    }
+    return render(request, "animals/confirm.html", context)
 
 
 # --- Target weight ----------------------------------------------------------------------------
@@ -269,7 +305,7 @@ def target_weight_confirm(request: HttpRequest, animal_uuid: UUID) -> HttpRespon
     access = get_animal_for(request.user, animal_uuid, Action.CONFIRM_TARGET_WEIGHT)
     form = ConfirmTargetWeightForm(request.POST)
     if not form.is_valid():
-        messages.error(request, "Potvrzení se nepodařilo. Načtěte stránku znovu a zkuste to znovu.")
+        messages.error(request, "Potvrzení se nepodařilo. Načtěte stránku a zkuste to znovu.")
         return redirect(access.animal)
     try:
         services.confirm_target_weight(access.animal, request.user, form.expected())

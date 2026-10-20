@@ -68,7 +68,9 @@ def test_growth_gestation_lactation_are_blocked(healthy, state):
 
     assert level == BLOCKED
     assert levels(attention(healthy)) == [BLOCKED]
-    assert "nelze doporučit" in reasons[0].text
+    assert "veterinární lékař" in reasons[0].text
+    # The level label is shown once above its reasons; the reason does not repeat it.
+    assert "nelze doporučit" not in reasons[0].text
 
 
 @pytest.mark.parametrize(
@@ -110,6 +112,34 @@ def test_latest_bcs(user, make_animal, make_measurement, bcs, expected):
     assert result.level == expected
     if expected != OK:
         assert f"{bcs}/9" in result.reasons[0].text
+
+
+@pytest.mark.parametrize(
+    ("bcs", "meaning"),
+    [
+        (1, "odpovídá výrazné podvýživě"),
+        (2, "odpovídá výrazné podvýživě"),
+        (3, "odpovídá podváze"),
+        (6, "odpovídá nadváze"),
+        (7, "odpovídá nadváze"),
+        (8, "odpovídá obezitě"),
+        (9, "odpovídá obezitě"),
+    ],
+)
+def test_bcs_reason_matches_the_scale_of_the_form(
+    user, make_animal, make_measurement, bcs, meaning
+):
+    """Wording follows the form's scale (9 = těžká obezita) and reads the score, no diagnosis."""
+    animal = make_animal(user, birth_date=ADULT)
+    measured_on = timezone.localdate() - timedelta(days=3)
+    make_measurement(animal, bcs=bcs, measured_on=measured_on)
+
+    text = attention(animal).reasons[0].text
+
+    assert text.startswith(f"Poslední zadané BCS je {bcs}/9 (ze dne {measured_on.day}. ")
+    assert meaning in text
+    assert "tedy" not in text
+    assert "nelze doporučit" not in text
 
 
 def test_only_the_latest_bcs_counts(user, make_animal, make_measurement):

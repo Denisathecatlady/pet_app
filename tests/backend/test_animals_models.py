@@ -1,10 +1,12 @@
 """Models of the animals app: validation, DB constraints, history and the condition catalog."""
 
+import importlib
 from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from django.core.exceptions import ValidationError
+from django.apps import apps
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.utils import timezone
@@ -182,6 +184,73 @@ def test_species_change_checks_existing_measurements(user, make_animal, make_mea
     assert "Druh nelze změnit" in assert_clean_error(animal, "species")[0]
 
 
+def confirmed_dog(owner, vet, **fields):
+    animal = dog(
+        owner,
+        target_weight_kg=Decimal("20"),
+        target_weight_status=TargetWeightStatus.VET_CONFIRMED,
+        target_weight_confirmed_by=vet,
+        target_weight_confirmed_at=timezone.now(),
+        **fields,
+    )
+    animal.full_clean()
+    animal.save()
+    return Animal.objects.get(pk=animal.pk)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"target_weight_kg": Decimal("35")},
+        {"species": Species.CAT, "target_weight_kg": Decimal("10")},
+        {"physiological_state": PhysiologicalState.GROWTH},
+    ],
+    ids=["target_weight", "species", "state"],
+)
+def test_clean_cancels_confirmation_when_its_basis_changes(user, vet_user, change):
+    """docs/05 §5.3: the vet confirmed this value for this animal; any edit path."""
+    animal = confirmed_dog(user, vet_user)
+    for name, value in change.items():
+        setattr(animal, name, value)
+
+    animal.full_clean()
+    animal.save()
+
+    animal.refresh_from_db()
+    assert animal.target_weight_status == TargetWeightStatus.UNVERIFIED
+    assert animal.target_weight_confirmed_by is None
+
+
+def test_clean_keeps_confirmation_for_other_changes(user, vet_user):
+    animal = confirmed_dog(user, vet_user)
+    animal.name = "Rexík"
+    animal.target_weight_kg = Decimal("20.000")  # same value
+    animal.full_clean()
+    assert animal.target_weight_status == TargetWeightStatus.VET_CONFIRMED
+
+
+def test_new_confirmation_must_name_a_vet(user, make_user):
+    owner_only = make_user("not-a-vet@example.cz")
+    animal = dog(
+        user,
+        target_weight_kg=Decimal("20"),
+        target_weight_status=TargetWeightStatus.VET_CONFIRMED,
+        target_weight_confirmed_by=owner_only,
+        target_weight_confirmed_at=timezone.now(),
+    )
+    message = assert_clean_error(animal, NON_FIELD_ERRORS)
+    assert "jen účet s rolí veterinárního lékaře" in message[0]
+
+
+def test_stored_confirmation_of_a_former_vet_does_not_block_other_edits(user, vet_user):
+    animal = confirmed_dog(user, vet_user)
+    # Bypass the role signal to model a confirmation stored before this rule existed.
+    Animal.objects.filter(pk=animal.pk).update(target_weight_confirmed_by=user)
+    animal.refresh_from_db()
+    animal.name = "Rexík"
+    animal.full_clean()  # does not raise: only a new confirmation is checked
+
+
 def test_reset_target_weight_confirmation(user, vet_user):
     animal = dog(
         user,
@@ -233,6 +302,45 @@ def test_measurement_date_not_in_future(user, make_animal):
     assert assert_clean_error(measurement, "measured_on") == [
         "Datum měření nemůže být v budoucnosti."
     ]
+
+
+@pytest.mark.parametrize("estimated", [False, True])
+def test_measurement_date_not_before_exact_birth_date(user, make_animal, estimated):
+    birth = TODAY() - timedelta(days=100)
+    animal = make_animal(user, birth_date=birth, birth_date_estimated=estimated)
+    measurement = BodyMeasurement(
+        animal=animal,
+        measured_on=birth - timedelta(days=1),
+        weight_kg=Decimal("5"),
+        assessed_by="OWNER",
+    )
+    if estimated:  # an estimate may be off: nothing is rejected against it
+        measurement.full_clean()
+    else:
+        message = assert_clean_error(measurement, "measured_on")[0]
+        assert message.startswith("Datum měření nemůže být dřívější než datum narození")
+    measurement.measured_on = birth
+    measurement.full_clean()
+
+
+def test_condition_since_not_before_exact_birth_date(user, make_animal):
+    birth = TODAY() - timedelta(days=100)
+    animal = make_animal(user, birth_date=birth)
+    item = AnimalHealthCondition(
+        animal=animal,
+        condition=HealthCondition.objects.get(code="CKD"),
+        since=birth - timedelta(days=1),
+    )
+    assert "dřívější než datum narození" in assert_clean_error(item, "since")[0]
+
+
+def test_birth_date_not_after_stored_records(user, make_animal, make_measurement):
+    animal = make_animal(user, birth_date=TODAY() - timedelta(days=400))
+    make_measurement(animal, measured_on=TODAY() - timedelta(days=300))
+    animal.birth_date = TODAY() - timedelta(days=200)
+    assert "pozdější než některé uložené měření" in assert_clean_error(animal, "birth_date")[0]
+    animal.birth_date_estimated = True
+    animal.full_clean()
 
 
 def test_measurement_weight_uses_species_bounds(user, make_animal):
@@ -356,7 +464,43 @@ def test_catalog_has_history():
     condition = HealthCondition.objects.get(code="CKD")
     condition.description_cs = "upraveno"
     condition.save()
-    assert condition.history.count() == 1
+    # The seeded state (migration 0003) and the change.
+    assert [r.history_type for r in condition.history.order_by("history_date")] == ["+", "~"]
+    assert condition.history.earliest("history_date").description_cs.startswith("Úprava P")
+
+
+def test_every_catalog_entry_starts_with_a_created_record():
+    assert HealthCondition.history.filter(history_type="+").count() == len(EXPECTED_CATALOG)
+    backfill = importlib.import_module("animals.migrations.0003_health_condition_initial_history")
+    backfill.add_initial_history(apps, None)  # running again adds nothing
+    assert HealthCondition.history.count() == len(EXPECTED_CATALOG)
+
+
+seed_migration = importlib.import_module("animals.migrations.0002_seed_health_conditions")
+
+
+def test_seed_migration_is_idempotent_and_reversible():
+    seed_migration.seed(apps, None)
+    assert HealthCondition.objects.count() == len(EXPECTED_CATALOG)
+
+    seed_migration.unseed(apps, None)
+    assert not HealthCondition.objects.exists()
+
+    seed_migration.seed(apps, None)
+    assert HealthCondition.objects.count() == len(EXPECTED_CATALOG)
+
+
+def test_seed_migration_reverses_with_conditions_in_use(user, make_animal):
+    """Codes recorded at an animal are protected; reversing keeps them instead of failing."""
+    AnimalHealthCondition.objects.create(
+        animal=make_animal(user), condition=HealthCondition.objects.get(code="CKD")
+    )
+
+    seed_migration.unseed(apps, None)
+
+    assert list(HealthCondition.objects.values_list("code", flat=True)) == ["CKD"]
+    seed_migration.seed(apps, None)
+    assert HealthCondition.objects.count() == len(EXPECTED_CATALOG)
 
 
 def test_deleting_an_animal_deletes_its_records_and_history(
