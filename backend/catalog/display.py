@@ -20,9 +20,9 @@ class VerificationStyle:
 VERIFICATION_STYLES: Final = MappingProxyType(
     {
         "P": VerificationStyle("p", "✓", "P – ověřeno v primárním zdroji"),
-        "A": VerificationStyle("a", "◕", "A – ověřen abstrakt nebo souhrn"),
-        "S": VerificationStyle("s", "◑", "S – ověřeno jen přes sekundární zdroj"),
-        "B": VerificationStyle("b", "◔", "B – ověřeny jen bibliografické údaje"),
+        "A": VerificationStyle("a", "◆", "A – ověřen abstrakt nebo souhrn"),
+        "S": VerificationStyle("s", "◇", "S – ověřeno jen přes sekundární zdroj"),
+        "B": VerificationStyle("b", "○", "B – ověřeny jen bibliografické údaje"),
         "NONE": VerificationStyle("none", "?", "Neověřeno"),
     }
 )

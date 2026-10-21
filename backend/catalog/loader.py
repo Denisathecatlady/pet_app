@@ -50,6 +50,7 @@ OPTIONAL_DEFAULTS: Final[dict[str, Any]] = {
     "limitations": "",
     "key_findings": "",
 }
+FIELD_ORDER: Final = (*REQUIRED_FIELDS, *OPTIONAL_DEFAULTS)
 TEXT_FIELDS: Final = (
     "citation_key",
     "title",
@@ -195,7 +196,7 @@ def load_sources(path: Path = DATA_FILE, *, dry_run: bool = False) -> LoadResult
             source = ScientificSource(**entry)
             created.append(entry["citation_key"])
         else:
-            changed = [name for name, value in entry.items() if getattr(source, name) != value]
+            changed = [name for name in FIELD_ORDER if getattr(source, name) != entry[name]]
             if not changed:
                 unchanged += 1
                 continue

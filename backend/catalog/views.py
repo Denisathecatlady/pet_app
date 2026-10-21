@@ -1,14 +1,14 @@
 """Public views of the library of sources, mounted under ``/zdroje/``.
 
 No sign-in is needed: the library is about evidence, not about people, and transparency
-about how well a source was checked helps every visitor. The views are read-only (GET).
+about how well a source was checked helps every visitor. The views are read-only (GET and HEAD).
 """
 
 from dataclasses import dataclass
 
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, render
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_safe
 
 from . import services
 from .display import EVIDENCE_NAMES, VERIFICATION_STYLES
@@ -30,7 +30,10 @@ def _filter_fields(query: services.SourceQuery) -> list[FilterField]:
         FilterField(
             services.PARAM_EVIDENCE,
             "Úroveň důkazů",
-            [(level.value, f"{level.value} – {EVIDENCE_NAMES[level.value]}") for level in EvidenceLevel],
+            [
+                (level.value, f"{level.value} – {EVIDENCE_NAMES[level.value]}")
+                for level in EvidenceLevel
+            ],
             query.evidence,
         ),
         FilterField(
@@ -54,7 +57,7 @@ def _filter_fields(query: services.SourceQuery) -> list[FilterField]:
     ]
 
 
-@require_GET
+@require_safe
 def source_list(request: HttpRequest) -> HttpResponse:
     """List of sources with filters, text search and pagination (25 per page).
 
@@ -77,7 +80,7 @@ def source_list(request: HttpRequest) -> HttpResponse:
     return render(request, "catalog/source_list.html", context)
 
 
-@require_GET
+@require_safe
 def source_detail(request: HttpRequest, citation_key: str) -> HttpResponse:
     """All fields of one source with the legend; 404 for an unknown citation key."""
     source = get_object_or_404(ScientificSource, citation_key=citation_key)

@@ -9,8 +9,10 @@ verzovaným standardem (výchozí FEDIAF 2025) a u každého čísla ukáže zdr
 > jádro `nutricalc` (milník M2: od energie a součtů živin po vyhodnocení proti standardu a souhrn,
 > ověřené jen na syntetických datech), viz [Nástroje](#nástroje), a webová aplikace v Djangu
 > (účty, role, GDPR, profily zvířat, hmotnost, BCS a MCS s grafy, zdravotní stavy, sdílení
-> s veterinářem),
-> viz [Webová aplikace](#webová-aplikace). Kalkulačka a nutriční rozbor ve webové aplikaci zatím nejsou.
+> s veterinářem a veřejná knihovna odborných zdrojů s úrovní důkazů a stavem jejich ověření),
+> viz [Webová aplikace](#webová-aplikace), a provozní nástroje pro šifrované zálohy a obnovu
+databáze ([Nasazení, zálohy a obnova](#nasazení-zálohy-a-obnova)). Kalkulačka a nutriční rozbor ve webové
+aplikaci zatím nejsou.
 
 ## Dokumentace Fáze 1
 
@@ -28,7 +30,9 @@ verzovaným standardem (výchozí FEDIAF 2025) a u každého čísla ukáže zdr
 | 10 | [Plán MVP](docs/10-plan-mvp.md) | Milníky, odhady, **doporučení nejmenší verze (MVP-0)** |
 | 11 | [Testovací plán](docs/11-testovaci-plan.md) | Katalog testů, golden příklady, odborná validace |
 | 12 | [Účty a zvířata](docs/12-ucty-a-zvirata.md) | Webová aplikace: role, oprávnění, upozornění u zvířat, GDPR, otevřené body |
-| – | [Registr zdrojů](docs/zdroje.md) | Všechny citace s úrovní ověření |
+| 13 | [Knihovna zdrojů v aplikaci](docs/13-zdroje-v-aplikaci.md) | Veřejná knihovna `ScientificSource`: stránky, model, převod registru, aktualizace |
+| 13 (provoz) | [Nasazení a provoz](docs/13-nasazeni-a-provoz.md) | Proměnné prostředí, první nasazení, proxy a TLS, denní úlohy, **zálohy a obnova databáze**, test obnovy, WAL, GDPR a zálohy |
+| – | [Registr zdrojů](docs/zdroje.md) | Všechny citace s úrovní ověření (jediný zdroj pravdy pro knihovnu) |
 
 Datové šablony: [`data/reference/nutrients.csv`](data/reference/nutrients.csv) (katalog 52 položek:
 živiny a proximátní složky) a [`data/reference/standard_import_template.csv`](data/reference/standard_import_template.csv)
@@ -97,7 +101,12 @@ Adresář [`backend/`](backend/) obsahuje Django 5.2 LTS projekt (`config`) s ap
 - `animals`: profily psů a koček, měření hmotnosti, BCS a MCS s grafy hmotnosti a BCS (SVG bez
   JavaScriptu, jen popisné), zdravotní stavy z číselníku
   podle docs/09 §9.2, úroveň upozornění u každého zvířete, sdílení s veterinářem a potvrzení
-  cílové hmotnosti veterinářem.
+  cílové hmotnosti veterinářem;
+- `catalog`: **veřejná knihovna odborných zdrojů** (`/zdroje/`, bez přihlášení): všech 37 zdrojů
+  [registru](docs/zdroje.md) s úrovní důkazů L1 až L6 a stavem ověření (B, A, P, S, neověřeno),
+  filtry, hledání, legenda a upozornění, že uvedený zdroj není automaticky ověřený v originále.
+  Data jsou v `backend/catalog/data/sources.json`, plní je `migrate` a `manage.py load_sources`,
+  shodu s registrem hlídá test ([docs/13](docs/13-zdroje-v-aplikaci.md)).
 
 Rozsah, oprávnění, pravidla upozornění a otevřené body popisuje
 [docs/12-ucty-a-zvirata.md](docs/12-ucty-a-zvirata.md). Webová aplikace zatím neimportuje
@@ -117,7 +126,7 @@ sudo -u postgres psql -c "CREATE ROLE barf LOGIN PASSWORD 'barf' CREATEDB;"
 sudo -u postgres createdb -O barf barf
 
 cd backend
-../.venv/bin/python manage.py migrate             # vytvoří tabulky, role a číselník stavů
+../.venv/bin/python manage.py migrate             # vytvoří tabulky, role, číselník stavů a knihovnu zdrojů
 ../.venv/bin/python manage.py createsuperuser
 ../.venv/bin/python manage.py runserver           # http://127.0.0.1:8000/
 ```
@@ -149,6 +158,39 @@ V produkci navíc:
   o roli veterinárního lékaře). E-maily z účtu se odesílají až po odpovědi serveru, aby doba
   odpovědi neprozradila, zda účet existuje.
 
+### Nasazení, zálohy a obnova
+
+Postup nasazení (proměnné, `migrate`, `createcachetable`, `collectstatic`, `check --deploy`, proxy
+s TLS, denní úlohy) a zálohování popisuje [docs/13-nasazeni-a-provoz.md](docs/13-nasazeni-a-provoz.md).
+Nástroje jsou v adresáři [`deploy/`](deploy/):
+
+| Soubor | Účel |
+|---|---|
+| `backup_db.sh` | `pg_dump` rourou do `gpg --symmetric` (AES256), soubor `barf-RRRRmmddTHHMMSSZ.dump.gpg` a manifest `.sha256`; retence: nejnovějších 30 záloh a první záloha každého z posledních 12 měsíců |
+| `restore_db.sh` | ověření kontrolního součtu, rozšifrování do roury a `pg_restore` do `RESTORE_TARGET_DB`; ostrou databázi odmítne bez `--i-know-this-overwrites-production` |
+| `restore_test.sh` | měsíční test obnovy nejnovější zálohy do pomocné databáze, řádka do protokolu `RESTORE_TEST_LOG` |
+| `crontab.example` | denní záloha, měsíční test obnovy, `purge_pending_accounts`, `clearsessions` |
+
+Skripty čtou připojení z `POSTGRES_*`, cesty z `BACKUP_DIR`, `BACKUP_PASSPHRASE_FILE`,
+`RESTORE_TARGET_DB`, `RESTORE_TEST_LOG` a nikdy nedávají heslo do argumentů. WAL archivace není
+vyzkoušená (jen popsaná v docs/13 §13.15).
+
+### Knihovna zdrojů
+
+`migrate` načte zdroje z `backend/catalog/data/sources.json` (37 záznamů podle
+[docs/zdroje.md](docs/zdroje.md)). Po změně registru upravte i tento soubor a spusťte:
+
+```bash
+cd backend
+../.venv/bin/python manage.py load_sources --dry-run   # co by se změnilo, nic nezapíše
+../.venv/bin/python manage.py load_sources             # vytvoří a aktualizuje, nikdy nemaže
+```
+
+Příkaz je bezpečné spouštět opakovaně (podruhé nic nezmění) a při chybě v souboru nezapíše nic.
+Změny provedené v administraci se přepíšou, pokud je dané pole v souboru; jak a proč viz
+[docs/13](docs/13-zdroje-v-aplikaci.md) §13.5. Shodu dokumentu a souboru ověří
+`.venv/bin/python -m pytest -q tests/backend/test_catalog_sync.py`.
+
 ### Role veterinárního lékaře
 
 Registrace vytvoří účet s rolí `owner`. Roli `vet` přiděluje jen správce: v administraci
@@ -167,6 +209,14 @@ Testy webové aplikace jsou v `tests/backend/` a běží na PostgreSQL (role `ba
 .venv/bin/python -m pytest -q                                   # celá sada
 .venv/bin/python -m pytest -q tests/backend                     # jen webová aplikace
 cd backend && ../.venv/bin/python manage.py makemigrations --check --dry-run
+```
+
+Skripty záloh testuje `tests/ops/` (jen přes `psql`, `gpg`, `pg_dump`, `pg_restore`; pracují s pokusnými
+databázemi `barf_ops_test_*`, které na konci zahodí, a nesahají na `barf` ani `test_barf`). Bez `gpg`,
+`pg_dump`, `pg_restore` nebo `psql` se přeskočí s uvedením důvodu.
+
+```bash
+.venv/bin/python -m pytest -q tests/ops
 ```
 
 ## Předávací zpráva Fáze 1

@@ -4,7 +4,7 @@ from typing import Any
 
 from django import template
 
-from catalog.display import EVIDENCE_NAMES, VERIFICATION_STYLES, evidence_name, verification_style
+from catalog.display import EVIDENCE_NAMES, evidence_name, verification_style
 from catalog.models import MARKERS, EvidenceLevel, VerificationLevel
 
 register = template.Library()
@@ -35,9 +35,10 @@ def evidence_badge(level: str) -> dict[str, str]:
 def source_legend() -> dict[str, Any]:
     """Render the legend: all evidence levels and all verification levels with their meaning."""
     return {
-        "evidence": [(level.value, EVIDENCE_NAMES[level.value], level.label) for level in EvidenceLevel],
+        "evidence": [
+            (level.value, EVIDENCE_NAMES[level.value], level.label) for level in EvidenceLevel
+        ],
         "verification": [
-            (level.value, VERIFICATION_STYLES[level.value], level.label)
-            for level in [*MARKERS, VerificationLevel.NONE]
+            (level.value, level.label) for level in [*MARKERS, VerificationLevel.NONE]
         ],
     }

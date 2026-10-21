@@ -33,6 +33,18 @@ Každá další funkce stojí na jádře, kterému už lze věřit.
 > cílové hmotnosti a přehled s úrovní upozornění ([12](12-ucty-a-zvirata.md)). Kalkulačka, recepty, rozbor
 > a PDF (zbytek M4 a M5) jsou na žádost zadavatele odložené a čekají na M1 a M3.
 
+> **Stav registru zdrojů (součást M1) 🛠:** všech 37 zdrojů registru [zdroje.md](zdroje.md) je
+> v aplikaci jako `ScientificSource` a veřejná *Knihovna zdrojů* ukazuje jejich úroveň důkazů a
+> stav ověření ([13](13-zdroje-v-aplikaci.md)). Žádný zdroj zatím nemá značku **P** (ověřená hodnota
+> v primárním zdroji); data standardů a surovin (zbytek M1) a jejich schválení specialistou
+> zůstávají odložené.
+
+> **Stav provozu (součást M4) 🛠:** pro zálohy a obnovu databáze jsou hotové skripty `deploy/`
+> (`backup_db.sh`, `restore_db.sh`, `restore_test.sh`, `crontab.example`) s automatickými testy
+> `tests/ops/` a [provozní příručka](13-nasazeni-a-provoz.md) (nasazení, proxy a TLS, denní úlohy, retence
+> 30 dní + 12 měsíců, měsíční test obnovy, GDPR a zálohy). Nevyzkoušená zůstává WAL archivace
+> (obnova k okamžiku), přenos záloh mimo server a běh za skutečnou reverzní proxy s TLS.
+
 Celkem do uzavřené bety (M1–M5): zhruba **12–17 týdnů** práce plus čas na revize specialisty. Největší
 nejistota je v datech (M1) a v dostupnosti specialisty (M3), ne v programování.
 

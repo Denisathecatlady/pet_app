@@ -5,8 +5,11 @@
 >
 > **Stav implementace 🛠:** hotové jsou aplikace `accounts` (účty, role, GDPR) a `animals` (modely
 > `Animal`, `BodyMeasurement`, `HealthCondition`, `AnimalHealthCondition`, `AnimalShare` s historií
-> změn, **bez nutričních vazeb**), viz [12](12-ucty-a-zvirata.md). `catalog`, `standards`, `recipes`,
-> `analyses`, REST API a HTMX zatím nejsou.
+> změn, **bez nutričních vazeb**), viz [12](12-ucty-a-zvirata.md), a `catalog` s modelem
+> `ScientificSource` (veřejná knihovna zdrojů naplněná z [zdroje.md](zdroje.md), viz
+> [13](13-zdroje-v-aplikaci.md); odchylky od §7.4 jsou v [13](13-zdroje-v-aplikaci.md) §13.3).
+> `standards`, `recipes`, `analyses`, zbytek `catalog` (`DataVersion`, `Nutrient`, `Ingredient`),
+> REST API a HTMX zatím nejsou.
 
 ## 7.1 Architektura ve vrstvách
 
@@ -348,6 +351,12 @@ class AnalysisNutrientResult(models.Model):    # denormalizace pro dotazy a graf
     coverage_pct = D(null=True); confidence = models.CharField(max_length=1, blank=True)
 ```
 
+> **Stav `ScientificSource` 🛠:** implementováno jako v ukázce s těmito rozdíly: `year` smí být
+> prázdný, `species` se jmenuje `species_scope`, `life_stages` je JSON seznam, `verified_by` má
+> `SET_NULL` (smazání účtu), přibyla pole `publication_details`, `type_note`, `verification_markers`,
+> `verification_note` a `key_findings` a omezení stavu ověření ([13](13-zdroje-v-aplikaci.md) §13.3).
+> Společný `TimeStamped` (`created_by`) se zatím nepoužívá, o změnách vypovídá historie.
+
 ## 7.5 Vazby a jejich důvod
 
 | Vazba | Proč |
@@ -383,7 +392,7 @@ class AnalysisNutrientResult(models.Model):    # denormalizace pro dotazy a graf
 | Autentizace | Django auth, Argon2 hash hesel, volitelně 2FA (django-otp) pro role vet, curator a reviewer |
 | Transport a aplikace | Jen HTTPS (HSTS), CSRF, bezpečné cookies, CSP, rate limiting přihlášení, `django-axes` |
 | Tajemství | Proměnné prostředí nebo secret manager, nic v repozitáři |
-| Zálohy | PostgreSQL: nepřetržitá archivace WAL (point-in-time recovery) + denní šifrovaný `pg_dump` mimo hlavní infrastrukturu. Retence 30 dní a měsíční zálohy 12 měsíců. **Měsíční test obnovy** zapsaný do protokolu |
+| Zálohy | PostgreSQL: nepřetržitá archivace WAL (point-in-time recovery) + denní šifrovaný `pg_dump` mimo hlavní infrastrukturu. Retence 30 dní a měsíční zálohy 12 měsíců. **Měsíční test obnovy** zapsaný do protokolu. Nástroje `deploy/` a postupy: [13-nasazeni-a-provoz.md](13-nasazeni-a-provoz.md) |
 | Závislosti | `pip-audit` / Dependabot, zamknuté verze (`uv.lock` nebo `requirements.txt` s hashi) |
 | Integrita referenčních dat | `content_checksum` verze dat. Kontrola při startu aplikace a v CI |
 

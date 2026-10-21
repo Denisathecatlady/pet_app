@@ -18,7 +18,10 @@ Webová aplikace vede evidenci, **nepočítá** výživu. Obsahuje:
 - **přehled** (`/prehled/`, přihlášený uživatel na `/` je přesměrován sem): karty vlastních zvířat
   a u veterináře oddíl *Sdílená zvířata*. Karta ukazuje jméno, druh, věk, poslední hmotnost
   a poslední BCS s datem, odznak úrovně upozornění, od dvou měření miniaturní graf hmotnosti
-  (sparkline) s textem a odkaz na stránku sledování (§12.11).
+  (sparkline) s textem a odkaz na stránku sledování (§12.11);
+- **knihovna zdrojů** (aplikace `catalog`): veřejné stránky `/zdroje/` s odbornými zdroji, úrovní
+  důkazů a stavem jejich ověření; nezávisí na přihlášení ani na zvířatech
+  ([13](13-zdroje-v-aplikaci.md)).
 
 Kalkulačka, recepty, suroviny, standardy, výpočet energie a nutriční rozbor jsou **odložené**
 (§12.7). Kód webové aplikace neimportuje `nutricalc` ani `refdata` (hlídá test
@@ -214,8 +217,9 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
 
 | Funkce | Jak |
 |---|---|
-| Export (čl. 15 a 20) | *Můj účet → Stáhnout moje data (JSON)*. Oddíl `account`: profil, role, úspěšná přihlášení, počitadla neúspěšných pokusů o přihlášení (čas, IP adresa, prohlížeč; bez dat odeslaného formuláře) a případný protokol jednotlivých pokusů. Oddíl `animals`: vlastní zvířata se všemi měřeními, zdravotními stavy, sdíleními a historií změn každého záznamu; u veterináře seznam přijatých sdílení (jen UUID zvířete a data, bez údajů majitele). Jiní uživatelé se v exportu objeví jen takto: e-mail veterinárního lékaře, se kterým uživatel zvíře sdílel (sdílení, potvrzení cílové hmotnosti, autor měření nebo změny); kdokoli jiný (např. správce, který záznam upravil v administraci) jen rolí „správce aplikace“ nebo „jiný uživatel“, bez e-mailu |
+| Export (čl. 15 a 20) | *Můj účet → Stáhnout moje data (JSON)*. Oddíl `account`: profil, role, úspěšná přihlášení, počitadla neúspěšných pokusů o přihlášení (čas, IP adresa, prohlížeč; bez dat odeslaného formuláře) a případný protokol jednotlivých pokusů. Oddíl `animals`: vlastní zvířata se všemi měřeními, zdravotními stavy, sdíleními a historií změn každého záznamu; u veterináře seznam přijatých sdílení (jen UUID zvířete a data, bez údajů majitele). Jiní uživatelé se v exportu objeví jen takto: e-mail veterinárního lékaře, se kterým uživatel zvíře sdílel (sdílení, potvrzení cílové hmotnosti, autor měření nebo změny); kdokoli jiný (např. správce, který záznam upravil v administraci) jen rolí „správce aplikace“ nebo „jiný uživatel“, bez e-mailu. Oddíl `catalog`: zdroje, u kterých je uživatel zapsán jako ověřovatel, a změny zdrojů, které provedl v administraci ([13](13-zdroje-v-aplikaci.md) §13.8) |
 | Výmaz (čl. 17) | Smazání účtu smaže všechna zvířata uživatele, jejich měření, stavy, sdílení **i historii změn** (`cascade_delete_history`) a záznamy o přihlášení (`django-axes`). Smazání jednoho zvířete, měření nebo stavu maže i jeho historii. V protokolu administrace zůstane záznam o úpravě (kdo, kdy, která pole), ale text smazaného objektu (e-mail, jméno zvířete) se nahradí „[smazaný záznam]“. Úklid běží v signálu `post_delete`, tedy i při smazání účtu správcem v administraci a při mazání neaktivovaných registrací |
+| Smazání účtu kurátora zdrojů | Zdroj, který kurátor ověřil, zůstane (je to veřejný odborný záznam); pole *ověřil* se vymaže i z historie změn zdroje a datum ověření zůstane ([13](13-zdroje-v-aplikaci.md) §13.3) |
 | Neaktivované registrace | Registraci lze založit na cizí e-mail; neaktivovaný účet smaže příkaz `purge_pending_accounts` po 7 dnech (`PENDING_ACCOUNT_RETENTION`, spouští se denně, README) |
 | Smazání účtu veterináře | Zaniknou sdílení, která dostal (i s historií). Jím zapsaná měření zůstanou majiteli, jen bez vazby na účet. Jím potvrzené cílové hmotnosti se vrátí na *orientační*. Stránka smazání účtu to veterináři předem vysvětlí |
 | Sdílení | Výslovné, jen s účtem s rolí `vet`, kdykoli odvolatelné; odvolání platí okamžitě. Záznam o odvolaném sdílení zůstává (kdo, komu, od kdy do kdy) do smazání zvířete nebo účtu |
@@ -248,7 +252,8 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
    a záznamů o přihlášení (`django-axes`).
 5. Přístup správců k datům v administraci (rozsah, záznam o přístupu, smluvní zajištění).
 6. Záznamy o činnostech zpracování, zpracovatelé (hosting, e-mail), zálohy po výmazu
-   (docs/07 §7.7: zálohy 30 dní a měsíční 12 měsíců).
+   (docs/07 §7.7: zálohy 30 dní a měsíční 12 měsíců). Podklady pro rozhodnutí
+   (retence, obnova vrací smazané účty, záznam o výmazech): [13-nasazeni-a-provoz.md](13-nasazeni-a-provoz.md) §13.14.
 7. Ověření veterinárního lékaře: role `vet` se přiděluje ručně; jak správce ověří, že jde o lékaře.
 8. Doba uchování neaktivovaných registrací (pracovně 7 dní, `PENDING_ACCOUNT_RETENTION`). Jde
    o údaje osoby, která registraci možná nezaložila.

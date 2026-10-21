@@ -89,7 +89,12 @@ class VerificationLevel(models.TextChoices):
 
 
 # The marks B, A, P and S in the order of the legend. NONE is the absence of every mark.
-MARKERS: Final = (VerificationLevel.B, VerificationLevel.A, VerificationLevel.P, VerificationLevel.S)
+MARKERS: Final = (
+    VerificationLevel.B,
+    VerificationLevel.A,
+    VerificationLevel.P,
+    VerificationLevel.S,
+)
 
 # What the single ``verification_level`` of a source with several marks is: the strongest
 # one in this order, i.e. how far into the *content* the verification reached. A mark of a
@@ -361,6 +366,18 @@ class ScientificSource(models.Model):
     def doi_url(self) -> str:
         """Link to the DOI (``https://doi.org/…``), empty without a DOI."""
         return f"https://doi.org/{self.doi}" if self.doi else ""
+
+    @property
+    def life_stage_labels(self) -> list[str]:
+        """Czech names of ``life_stages``."""
+        return [str(LifeStage(stage).label) for stage in self.life_stages]
+
+    @property
+    def marker_meanings(self) -> list[tuple[str, str]]:
+        """``(mark, meaning)`` for each of ``verification_markers``, in the stored order."""
+        return [
+            (marker, str(VerificationLevel(marker).label)) for marker in self.verification_markers
+        ]
 
     def clean(self) -> None:
         """Check that the stored level is the strongest of the marks.

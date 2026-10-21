@@ -25,6 +25,9 @@ class ScientificSourceForm(forms.ModelForm):
         help_text=ScientificSource._meta.get_field("verification_markers").help_text,
     )
 
+    # Declared here so that the form field states how an address without a scheme is read.
+    url = forms.URLField(label="odkaz", max_length=500, required=False, assume_scheme="https")
+
     class Meta:
         model = ScientificSource
         fields = "__all__"

@@ -100,6 +100,7 @@ def test_export_rejects_post(logged_in_client):
 def test_accounts_exporter_is_registered():
     assert "account" in registered_exporters()
     assert "animals" in registered_exporters()
+    assert "catalog" in registered_exporters()
 
 
 def test_registry_includes_other_apps(monkeypatch, user):
@@ -108,7 +109,7 @@ def test_registry_includes_other_apps(monkeypatch, user):
 
     data = build_export(user)
 
-    assert list(data["data"]) == ["account", "animals", "zz_sample"]
+    assert list(data["data"]) == ["account", "animals", "catalog", "zz_sample"]
     assert data["data"]["zz_sample"] == [{"name": "Rex", "owner": user.email}]
 
 

@@ -102,3 +102,57 @@ def make_measurement(db):
 @pytest.fixture
 def vet_user(make_user) -> User:
     return make_user("vet@example.cz", roles=(Role.VET,))
+
+
+# --- Library of sources -----------------------------------------------------------------------
+
+
+@pytest.fixture
+def make_source(db):
+    """Create a validated source; keyword arguments override the defaults.
+
+    The defaults are an unverified original study about dogs. The migration has already
+    loaded the real library into the test database; tests that need a known set of
+    sources use ``empty_library`` first.
+    """
+    from itertools import count
+
+    from catalog.models import (
+        EvidenceLevel,
+        ScientificSource,
+        SourceType,
+        SpeciesScope,
+        VerificationLevel,
+    )
+
+    numbers = count(1)
+
+    def factory(**fields) -> ScientificSource:
+        number = next(numbers)
+        values = {
+            "citation_key": f"Test{number}",
+            "title": f"Testovací zdroj {number}",
+            "authors_or_org": "Novák J, Svoboda P",
+            "year": 2020,
+            "source_type": SourceType.ORIGINAL_STUDY,
+            "evidence_level": EvidenceLevel.L3,
+            "species_scope": SpeciesScope.DOG,
+            "verification_level": VerificationLevel.NONE,
+            **fields,
+        }
+        source = ScientificSource(**values)
+        source.full_clean()
+        source.save()
+        return source
+
+    return factory
+
+
+@pytest.fixture
+def empty_library(db):
+    """Remove the sources the migration loaded, and their history (inside the test's
+    transaction only)."""
+    from catalog.models import ScientificSource
+
+    ScientificSource.objects.all().delete()
+    ScientificSource.history.all().delete()

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% load catalog_tags %}
+{% block title %}{{ source.citation_key }}: zdroj{% endblock %}
+{% block content %}
+<nav aria-label="Drobečková navigace" class="breadcrumbs">
+  <a href="{% url 'catalog:source_list' %}">Knihovna zdrojů</a> <span aria-hidden="true">›</span>
+  <span aria-current="page">{{ source.citation_key }}</span>
+</nav>
+
+<h1>{{ source.title }}</h1>
+<p class="lead"><code class="source-key">{{ source.citation_key }}</code></p>
+
+{% include "catalog/includes/trust_banner.html" %}
+
+<section aria-labelledby="verification-title">
+  <h2 id="verification-title">Stav ověření</h2>
+  <p class="verification-status">{% verification_badge source.verification_level %}</p>
+  <p>{{ source.get_verification_level_display }}.</p>
+  {% if source.verification_markers %}
+    <h3>Značky ověření v registru</h3>
+    <ul class="marker-list">
+      {% for code, label in source.marker_meanings %}
+        <li><strong>{{ code }}</strong> – {{ label }}.</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="hint">Registr u tohoto zdroje nepřiřazuje žádnou ze značek B, A, P, S.</p>
+  {% endif %}
+  {% if source.verification_note %}
+    <h3>Co přesně bylo ověřeno</h3>
+    <p class="verification-note">{{ source.verification_note|linebreaksbr }}</p>
+  {% endif %}
+  <dl class="source-facts">
+    <div><dt>Datum posledního ověření</dt><dd>{% if source.last_verified_at %}{{ source.last_verified_at|date:"j. n. Y" }}{% else %}neuvedeno{% endif %}</dd></div>
+    <div><dt>Ověřil</dt><dd>{% if source.verified_by_id %}kurátor aplikace (jméno se veřejně nezobrazuje){% else %}neuvedeno{% endif %}</dd></div>
+  </dl>
+</section>
+
+<section aria-labelledby="facts-title">
+  <h2 id="facts-title">Údaje o zdroji</h2>
+  <dl class="source-facts">
+    <div><dt>Citační klíč</dt><dd><code class="source-key">{{ source.citation_key }}</code></dd></div>
+    <div><dt>Autoři nebo organizace</dt><dd>{{ source.authors_or_org|default:"neuvedeno" }}</dd></div>
+    <div><dt>Rok</dt><dd>{{ source.year|default:"neuveden" }}</dd></div>
+    <div><dt>Vydání nebo verze</dt><dd>{{ source.edition_version|default:"neuvedeno" }}</dd></div>
+    <div><dt>Podrobnosti o vydání</dt><dd>{{ source.publication_details|default:"neuvedeno" }}</dd></div>
+    <div><dt>DOI</dt><dd>{% if source.doi %}<a href="{{ source.doi_url }}" rel="noopener noreferrer external">{{ source.doi }}</a>{% else %}neuvedeno{% endif %}</dd></div>
+    <div><dt>Odkaz</dt><dd>{% if source.url %}<a href="{{ source.url }}" rel="noopener noreferrer external">{{ source.url }}</a>{% else %}neuveden{% endif %}</dd></div>
+    <div><dt>Typ zdroje</dt><dd>{{ source.get_source_type_display }}{% if source.type_note %} ({{ source.type_note }}){% endif %}</dd></div>
+    <div><dt>Úroveň důkazů</dt><dd>{% evidence_badge source.evidence_level %} {{ source.get_evidence_level_display }}.</dd></div>
+    <div><dt>Druh zvířat</dt><dd>{{ source.get_species_scope_display }}</dd></div>
+    <div><dt>Životní fáze</dt><dd>{% if source.life_stages %}{{ source.life_stage_labels|join:", " }}{% else %}neuvedeno{% endif %}</dd></div>
+    <div><dt>Jednotky a podmínky</dt><dd>{{ source.units_and_conditions|default:"neuvedeno"|linebreaksbr }}</dd></div>
+  </dl>
+</section>
+
+<section aria-labelledby="findings-title">
+  <h2 id="findings-title">Hlavní zjištění</h2>
+  {% if source.key_findings %}
+    <p>{{ source.key_findings|linebreaksbr }}</p>
+    <p class="hint">Popis zdroje převzatý z registru, ne doporučení pro krmení.</p>
+  {% else %}
+    <p class="hint">Registr u tohoto zdroje hlavní zjištění neuvádí.</p>
+  {% endif %}
+</section>
+
+<section aria-labelledby="limits-title">
+  <h2 id="limits-title">Omezení</h2>
+  {% if source.limitations %}
+    <p>{{ source.limitations|linebreaksbr }}</p>
+  {% else %}
+    <p class="hint">Registr u tohoto zdroje omezení neuvádí.</p>
+  {% endif %}
+</section>
+
+{% source_legend %}
+
+<p class="actions"><a class="button button--secondary" href="{% url 'catalog:source_list' %}">Zpět na knihovnu zdrojů</a></p>
+{% endblock %}

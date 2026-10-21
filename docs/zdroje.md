@@ -1,8 +1,11 @@
 # Registr odborných zdrojů (Fáze 1)
 
 Tento soubor je **jediné místo**, odkud ostatní dokumenty citují. Každý zdroj má klíč v hranatých
-závorkách (např. `[FEDIAF2025]`), který se používá v textu. Stejná struktura se později stane
-tabulkou `ScientificSource` v databázi (viz [07-django-schema.md](07-django-schema.md)).
+závorkách (např. `[FEDIAF2025]`), který se používá v textu. Z tohoto souboru se plní tabulka
+`ScientificSource` ve webové aplikaci (soubor `backend/catalog/data/sources.json`, viz
+[13-zdroje-v-aplikaci.md](13-zdroje-v-aplikaci.md) a [07-django-schema.md](07-django-schema.md)).
+Po každé změně tabulek níže upravte i ten soubor; test `tests/backend/test_catalog_sync.py`
+hlídá, aby si odpovídaly.
 
 ## Jak číst sloupec „Ověření v této fázi"
 

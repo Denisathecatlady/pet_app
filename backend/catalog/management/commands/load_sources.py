@@ -35,7 +35,9 @@ class Command(BaseCommand):
         try:
             result = load_sources(options["file"], dry_run=options["dry_run"])
         except SourceDataError as error:
-            raise CommandError(f"Zdroje se nepodařilo načíst, nic nebylo zapsáno:\n{error}") from error
+            raise CommandError(
+                f"Zdroje se nepodařilo načíst, nic nebylo zapsáno:\n{error}"
+            ) from error
         prefix = "Zkouška (nic nezapsáno). " if options["dry_run"] else ""
         self.stdout.write(
             f"{prefix}Zdrojů v souboru: {result.total}. "

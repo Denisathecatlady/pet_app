@@ -15,6 +15,7 @@
       {% with current=request.resolver_match.view_name %}
       <nav class="site-nav" aria-label="Hlavní navigace">
         <ul>
+          <li><a href="{% url 'catalog:source_list' %}"{% if current == 'catalog:source_list' %} aria-current="page"{% elif current == 'catalog:source_detail' %} aria-current="true"{% endif %}>Knihovna zdrojů</a></li>
           {% if user.is_authenticated %}
             <li><a href="{% url 'core:dashboard' %}"{% if current == 'core:dashboard' %} aria-current="page"{% endif %}>Přehled</a></li>
             <li><a href="{% url 'accounts:profile' %}"{% if current == 'accounts:profile' %} aria-current="page"{% endif %}>Můj účet</a></li>
