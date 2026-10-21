@@ -37,6 +37,18 @@
   --color-success-bg: #e8f5ec;
   --color-success-border: #2e7d43;
 
+  /* Charts. Marks and lines: >= 3:1 against --color-surface (4.6:1 and better); chart text
+     uses --color-muted / --color-text (>= 7:1). Weight and vet marker also differ by
+     shape, so the two colours are never the only cue. Validated as a palette for both
+     schemes (OKLab distance, CVD simulation). */
+  --chart-weight: #0b57a4;
+  --chart-vet: #b45309;
+  --chart-axis: #6b7380;
+  --chart-grid: #d5d9e0;
+  --chart-target: #4a5361;
+  --chart-band: #dce8f7;
+  --chart-band-edge: #5f7896;
+
   --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --radius: 0.375rem;
   --space-1: 0.25rem;
@@ -77,6 +89,14 @@
     --color-success-fg: #9ed8ac;
     --color-success-bg: #15301d;
     --color-success-border: #4fa866;
+
+    --chart-weight: #4a8ddb;
+    --chart-vet: #d4772a;
+    --chart-axis: #8a94a1;
+    --chart-grid: #323944;
+    --chart-target: #b4bcc6;
+    --chart-band: #223449;
+    --chart-band-edge: #8fa6c4;
   }
 }
 
@@ -521,6 +541,15 @@ button.button--danger {
   color: inherit;
 }
 
+/* A button inside a notice keeps its own colours (the rule above would blank it). */
+.notice a.button {
+  color: var(--color-on-primary);
+}
+
+.notice a.button--secondary {
+  color: var(--color-link);
+}
+
 .status {
   display: inline-flex;
   align-items: center;
@@ -686,6 +715,228 @@ table.data td.num {
   align-items: center;
   gap: var(--space-2);
   font-size: 1.25rem;
+}
+
+/* --- Charts (weight, body condition, sparkline) ------------------------------------ */
+
+.period-switch ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+}
+
+.period-switch a {
+  display: inline-block;
+  min-width: 4.5rem;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--color-input-border);
+  border-radius: var(--radius);
+  text-align: center;
+  text-decoration: none;
+}
+
+/* The chosen period: filled, bold and ticked, not marked by colour alone. */
+.period-switch a[aria-current] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: 700;
+}
+
+.period-switch a[aria-current]::before {
+  content: "✓ ";
+  content: "✓ " / "";
+}
+
+.chart {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.chart__scroll {
+  overflow-x: auto;
+}
+
+/* The viewBox is 640 units wide: the text keeps a readable size down to the minimum
+   width, narrower screens scroll the chart sideways. */
+.chart__svg {
+  display: block;
+  width: 100%;
+  min-width: 30rem;
+  max-width: 48rem;
+  height: auto;
+}
+
+.chart__caption {
+  margin-top: var(--space-3);
+}
+
+.chart__caption h3 {
+  margin-top: var(--space-3);
+}
+
+.chart__change {
+  font-weight: 600;
+}
+
+.chart__caption .facts dt {
+  min-width: 15rem;
+}
+
+.chart text {
+  font-family: var(--font-body);
+  font-size: 13px;
+  fill: var(--color-muted);
+}
+
+.chart__axis-title {
+  font-size: 12px;
+}
+
+.chart .chart__label {
+  fill: var(--color-text);
+  paint-order: stroke;
+  stroke: var(--color-surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.chart .chart__label--band {
+  fill: var(--color-muted);
+  stroke: none;
+}
+
+.chart__grid {
+  stroke: var(--chart-grid);
+  stroke-width: 1;
+}
+
+.chart__axis {
+  stroke: var(--chart-axis);
+  stroke-width: 1;
+}
+
+.chart__band {
+  fill: var(--chart-band);
+}
+
+.chart__band-edge {
+  stroke: var(--chart-band-edge);
+  stroke-width: 1;
+}
+
+.chart__line {
+  fill: none;
+  stroke: var(--chart-weight);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart__target {
+  stroke: var(--chart-target);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+/* The shape (circle = owner, diamond = vet) carries the meaning; the 2px ring in the
+   surface colour keeps overlapping marks apart. */
+.chart__point {
+  stroke: var(--color-surface);
+  stroke-width: 2;
+}
+
+.chart__point--owner {
+  fill: var(--chart-weight);
+}
+
+.chart__point--vet {
+  fill: var(--chart-vet);
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  list-style: none;
+  padding: 0;
+}
+
+.chart-legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chart-legend__icon {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  overflow: visible;
+}
+
+.sparkline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin: var(--space-2) 0 0;
+}
+
+.sparkline__svg {
+  flex: none;
+}
+
+.sparkline__line {
+  fill: none;
+  stroke: var(--chart-weight);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sparkline__dot {
+  fill: var(--chart-weight);
+  stroke: var(--color-surface);
+  stroke-width: 2;
+}
+
+.sparkline__text {
+  font-size: 0.9375rem;
+  color: var(--color-muted);
+}
+
+.card__links {
+  margin: var(--space-2) 0 0;
+}
+
+/* Forced colours (high contrast): lines and marks use system colours. */
+@media (forced-colors: active) {
+  .chart__line,
+  .sparkline__line,
+  .chart__axis {
+    stroke: CanvasText;
+  }
+
+  .chart__target,
+  .chart__band-edge {
+    stroke: GrayText;
+  }
+
+  .chart__point,
+  .sparkline__dot {
+    fill: Highlight;
+    stroke: Canvas;
+  }
+
+  .chart__band {
+    fill: Canvas;
+  }
 }
 
 /* --- Print and motion ------------------------------------------------------------- */

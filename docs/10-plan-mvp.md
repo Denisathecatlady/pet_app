@@ -28,8 +28,9 @@ Každá další funkce stojí na jádře, kterému už lze věřit.
 > a na odbornou validaci M3 🩺.
 
 > **Stav M4/M5 (část) 🛠:** webová aplikace má účty a role, GDPR export a výmaz, profily zvířat,
-> sledování hmotnosti, BCS a MCS (tabulka), zdravotní stavy, sdílení s veterinářem, potvrzení cílové
-> hmotnosti a přehled s úrovní upozornění ([12](12-ucty-a-zvirata.md)). Kalkulačka, recepty, rozbor
+> sledování hmotnosti, BCS a MCS (tabulka a grafy hmotnosti a BCS bez JavaScriptu, sparkline na
+> přehledu, [12](12-ucty-a-zvirata.md) §12.11), zdravotní stavy, sdílení s veterinářem, potvrzení
+> cílové hmotnosti a přehled s úrovní upozornění ([12](12-ucty-a-zvirata.md)). Kalkulačka, recepty, rozbor
 > a PDF (zbytek M4 a M5) jsou na žádost zadavatele odložené a čekají na M1 a M3.
 
 Celkem do uzavřené bety (M1–M5): zhruba **12–17 týdnů** práce plus čas na revize specialisty. Největší

@@ -13,11 +13,12 @@ Webová aplikace vede evidenci, **nepočítá** výživu. Obsahuje:
   proti hádání hesla (`django-axes`), změna a obnova hesla, profil, role, export osobních údajů
   a smazání účtu;
 - **zvířata** (aplikace `animals`): profil psa nebo kočky, měření hmotnosti, BCS a MCS (tabulka,
-  nejnovější nahoře), zdravotní stavy z číselníku, cílová hmotnost se stavem *orientační* /
+  nejnovější nahoře, a grafy hmotnosti a BCS, §12.11), zdravotní stavy z číselníku, cílová hmotnost se stavem *orientační* /
   *potvrzeno veterinářem*, sdílení s veterinářem a úroveň upozornění (§12.5);
 - **přehled** (`/prehled/`, přihlášený uživatel na `/` je přesměrován sem): karty vlastních zvířat
   a u veterináře oddíl *Sdílená zvířata*. Karta ukazuje jméno, druh, věk, poslední hmotnost
-  a poslední BCS s datem a odznak úrovně upozornění.
+  a poslední BCS s datem, odznak úrovně upozornění, od dvou měření miniaturní graf hmotnosti
+  (sparkline) s textem a odkaz na stránku sledování (§12.11).
 
 Kalkulačka, recepty, suroviny, standardy, výpočet energie a nutriční rozbor jsou **odložené**
 (§12.7). Kód webové aplikace neimportuje `nutricalc` ani `refdata` (hlídá test
@@ -44,7 +45,7 @@ se zakázanou akcí vrací **403**. Nepřihlášený návštěvník je přesměr
 
 | Akce (`Action`) | Majitel | Veterinář s aktivním sdílením | Veterinář se zrušeným sdílením nebo bez něj, jiný majitel | Nepřihlášený |
 |---|---|---|---|---|
-| Zobrazit profil, měření, stavy (`VIEW`) | ✔ | ✔ | 404 | přihlášení |
+| Zobrazit profil, měření, stavy a grafy hmotnosti a BCS (`VIEW`) | ✔ | ✔ | 404 | přihlášení |
 | Upravit profil, smazat měření (`EDIT`) | ✔ | 403 | 404 | přihlášení |
 | Smazat zvíře (`DELETE`) | ✔ | 403 | 404 | přihlášení |
 | Zapsat měření (`ADD_MEASUREMENT`) | ✔ (posoudil: majitel) | ✔ (posoudil: veterinář) | 404 | přihlášení |
@@ -203,8 +204,9 @@ a §8.6: vždy ikona + text + barva.
   `FOOD_ALLERGY` (🩺) se počítá, jen když je zadaný jako zdravotní stav. Formulář a stránka
   zvířete proto u vyplněných alergií bez tohoto stavu napoví, ať majitel potravní alergii
   zjištěnou veterinářem zadá i jako zdravotní stav (🩺 §12.9).
-- **Neimplementováno:** „rychlý úbytek hmotnosti“ z §9.2 (chybí odborně stanovený práh) a omezení
-  pravidla MCS na seniory (pravidlo platí pro každý věk, přísnější varianta).
+- **Neimplementováno:** „rychlý úbytek hmotnosti“ z §9.2 (chybí odborně stanovený práh; ani
+  stránka sledování, §12.11, změnu hmotnosti nehodnotí) a omezení pravidla MCS na seniory
+  (pravidlo platí pro každý věk, přísnější varianta).
 
 Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, kombinace, věk).
 
@@ -223,12 +225,13 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
 
 - Kalkulačka denní dávky, recepty, suroviny, standardy, výpočet energie, nutriční rozbor, PDF
   (odloženo na žádost zadavatele; navazuje na M1 a M3, docs/10).
-- Graf hmotnosti (zatím tabulka), HTMX, REST API (docs/07 §7.8), 2FA pro role `vet`, `data_curator`
-  a `nutrition_reviewer` (docs/07 §7.7).
+- HTMX, REST API (docs/07 §7.8), 2FA pro role `vet`, `data_curator` a `nutrition_reviewer`
+  (docs/07 §7.7). Grafy hmotnosti a BCS už jsou (§12.11); chybí trendová upozornění, návrh úpravy
+  energie a graf MCS (§12.11).
 - E-mailové oznámení veterináři o novém sdílení, žádost veterináře o sdílení, převod zvířete na
   jiného majitele, více majitelů jednoho zvířete.
 - Úprava uloženého měření (jen smazání a nový zápis).
-- Pravidlo „rychlý úbytek hmotnosti“ (§12.5).
+- Pravidlo „rychlý úbytek hmotnosti“ (§12.5, §12.11) a jakákoli trendová upozornění.
 - Žádost o roli veterinárního lékaře v aplikaci: veterinář zatím píše na adresu správce
   (`DJANGO_CONTACT_EMAIL`, patička a stránka *Můj účet*), správce roli přidělí v administraci.
 - Omezení počtu registrací z jedné adresy a celkový limit neúspěšných přihlášení z jedné IP
@@ -270,7 +273,10 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
    (§12.5, odchylka). Má být ⛔? A hranice 12 měsíců: velká a obří plemena rostou déle, hranice
    by mohla záviset na velikostní kategorii.
 4. Mapování BCS na úrovně (1–2 ⛔, 3 a 6–9 🩺, 4–5 bez upozornění) a MCS pro všechny věkové skupiny.
-5. Práh pro „rychlý úbytek hmotnosti“ (kolik % za jaké období).
+5. Práh pro „rychlý úbytek hmotnosti“ (kolik % za jaké období, od kolika měření, jak zacházet
+   s kolísáním způsobeným vážením a hydratací). Bez něj aplikace žádnou změnu hmotnosti nehodnotí
+   a neupozorňuje na ni: stránka sledování jen popisuje, co bylo zapsáno (§12.11). Po stanovení
+   prahu by se upozornění mělo objevit na stránce zvířete i na kartě přehledu.
 6. Všechny texty důvodů upozornění, slovní popisy aktivity a popisy BCS a MCS ve formuláři.
 7. Co přesně potvrzení cílové hmotnosti veterinářem znamená a kdy má propadnout (např. po určité
    době nebo po změně BCS). Dnes propadá při změně hodnoty, druhu nebo fyziologického stavu, při
@@ -283,6 +289,18 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
 10. Slovní výklad BCS v důvodech upozornění (6–7 nadváha, 8–9 obezita) (§12.5).
 11. Štítek ⛔ „Automatický výpočet nelze doporučit“ (docs/08 §8.6) se ukazuje i u zvířete,
     ačkoli kalkulačka zatím není. Má mít pro profil zvířete vlastní znění?
+12. Popisné texty stránky sledování (§12.11): věta „Zda je změna žádoucí, posoudí veterinární
+    lékař.“, zda uvádět změnu i v procentech (nemůže působit jako hodnocení?), nabídka období
+    30 dní, 90 dní, 1 rok a vše a to, že graf vzniká až ze dvou měření.
+13. Pásmo „4–5 z 9“ jako podklad grafu BCS (docs/05 §5.3: pásmo, pro které je výpočet z aktuální
+    hmotnosti určen). Stránka ho neoznačuje za „ideální“ ani „zdravé“. Je takové pojmenování
+    v pořádku, nebo se má pásmo nekreslit? Formulář měření (§12.4) dosud popisuje BCS 4–5 jako
+    „ideální kondici“: slovo sjednotit.
+14. Minimální rozsah osy hmotnosti v grafu (nejméně 1 kg nebo 5 % nejvyšší zobrazené hmotnosti),
+    aby kolísání o desítky gramů nevypadalo jako velká změna. Potvrdit hodnoty.
+15. Má stránka sledování připomínat doporučenou četnost vážení (docs/05 §5.6: hmotnost 1× týdně,
+    BCS 1× za 2–4 týdny) a zobrazovat svalovou kondici (MCS) v grafu? Zatím je MCS jen v tabulce
+    a žádná připomínka se nezobrazuje.
 
 ## 12.10 Zabezpečení účtů a zbytková rizika 🛠
 
@@ -305,3 +323,54 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
   zvážit před ostrým provozem (§12.7). Za proxy musí být nastaven `DJANGO_TRUSTED_PROXY_COUNT`,
   jinak produkční nastavení odmítne start (jinak by zámek platil jen podle e-mailu a kdokoli by
   mohl zamknout cizí účet).
+
+## 12.11 Sledování hmotnosti a kondice (grafy) 🛠
+
+Obrazovka *Sledování hmotnosti a kondice* z docs/08 §8.3 je stránka `/zvirata/<uuid>/hmotnost/`
+(`animals:tracking`). Vede na ni tlačítko *Graf hmotnosti a kondice* a odkaz v sekci měření na
+detailu zvířete a odkaz *Hmotnost a kondice* na kartě přehledu. Drobečky: Přehled › zvíře ›
+Sledování hmotnosti a kondice. Stránka je **jen popisná**: ukazuje, co bylo zapsáno. Nehodnotí
+vývoj hmotnosti ani kondice, nepočítá žádné míry změny proti prahům a nedává doporučení ke krmení.
+
+| Oblast | Pravidlo |
+|---|---|
+| Oprávnění | `VIEW` přes `get_animal_for` (§12.3): majitel a veterinář s aktivním sdílením 200, ostatní 404, nepřihlášený je přesměrován na přihlášení. Jen metoda GET (POST = 405), stránka se neukládá do mezipaměti prohlížeče |
+| Období | Parametr `?obdobi=` s hodnotami `30`, `90`, `365`, `vse`; výchozí je 90. Jiná hodnota (i chybějící) vrací výchozí období bez chyby. Pevné období je přesně tolik kalendářních dnů končících dnešním dnem (30 dní = dnes a 29 předchozích dnů), *Vše* začíná prvním měřením. Osa x vždy končí dnešním dnem, takže dlouhá pauza od posledního měření je vidět. Přepínač jsou odkazy, zvolené období má `aria-current="true"`, je vyplněné, tučné a označené ✓ |
+| Graf hmotnosti | Čára a body z měření v období, osa y v kg. Rozsah osy pokrývá data **i cílovou hmotnost** (čára je vždy v grafu) a nikdy nejde pod nulu; je nejméně 1 kg nebo 5 % nejvyšší hodnoty široký, aby drobné kolísání nevypadalo jako velká změna (🩺 §12.9, bod 14). Značky osy y jsou kulatá čísla (krok 1, 2 nebo 5 × mocnina deseti), osa x má popisky ve dnech, pondělcích, měsících nebo letech podle délky období (nejvýše 7). Hodnota posledního bodu je popsaná vedle něj |
+| Kdo měření zapsal | **Tvar značky**, ne jen barva: kolečko = majitel, kosočtverec = veterinární lékař (barva se liší navíc). Legenda pod grafem popisuje jen tvary, které jsou nakreslené |
+| Cílová hmotnost | Čárkovaná vodorovná čára s popiskem *cílová hmotnost (orientační)* nebo *cílová hmotnost (potvrzeno veterinářem)* podle `target_weight_status` (docs/05 §5.3) a hodnotou. Nikdy se nenazývá „ideální“. Bez zadané cílové hmotnosti se nekreslí |
+| Graf BCS | Samostatné body (bez spojnice) na celé devítibodové ose 1–9, jen měření, která mají BCS. Podkladem je pásmo 4–5 z 9 (od 3,5 do 5,5), popsané *pásmo 4–5 z 9* a v legendě. Je to vodítko ze škály (docs/05 §5.3), ne hodnocení: text pod grafem říká, že skóre i jeho význam posoudí veterinární lékař. Měření bez BCS graf vynechá |
+| Souhrn | Počet měření v období, první a poslední hmotnost s daty, rozdíl v kg a v % (vůči první hmotnosti, na jedno desetinné místo) a počet dní mezi nimi. Věta: *Změna hmotnosti za zvolené období: −1,2 kg (−3,8 %). Zda je změna žádoucí, posoudí veterinární lékař.* Čísla a věta se zobrazí od dvou měření |
+| Více měření v jeden den | Všechna se nakreslí a vypíší; první a poslední hmotnost se řídí pořadím zápisu (poslední zapsané měření dne je „poslední“) |
+| Tabulka | **Vždy** pod grafy: datum, hmotnost, BCS, MCS, posoudil, poznámka, nejnovější nahoře. Obsahuje všechna měření ze zobrazeného období, tedy stejná data jako grafy (MCS jen zde). Počet měření mimo období a odkaz *zobrazit vše* jsou nad tabulkou. E-mail veterináře ve sloupci *Posoudil* vidí jen majitel a veterinář, který měření zapsal (stejné pravidlo jako na detailu, §12.6) |
+| Prázdné stavy | Méně než dvě měření v období (graf hmotnosti) nebo méně než dvě hodnocení BCS (graf BCS): místo grafu vysvětlení (žádné měření, jediné měření s hodnotou a datem, měření jen mimo období) a tlačítko *Zapsat měření* na formulář měření. Tabulka zůstává |
+| Dostupnost | Každý graf je `<figure>` s `<svg role="img">`, `<title>` (jméno zvířete a období) a `<desc>` (období, počet měření, první a poslední hmotnost, změna s větou o veterináři, cílová hmotnost, význam tvarů). Grafy jsou v posuvné oblasti s `tabindex="0"` (na úzkém displeji se posouvají do stran, text zůstává čitelný). Nadpisy jdou po úrovních (h1, h2, h3), tabulka je alternativa pro čtečky |
+| Barvy | Barvy jsou vlastnosti CSS (`--chart-*`, světlý i tmavý režim). Značky, čáry a osy mají proti pozadí grafu kontrast nejméně 4,1 : 1 (požadavek 3 : 1; mřížka je jen pomocná a záměrně nenápadná), text grafu nejméně 7 : 1. Dvojice barev značek (majitel a veterinář) prošla kontrolou odlišitelnosti (OKLab, simulace barvosleposti). V režimu vysokého kontrastu se použijí systémové barvy |
+| Bezpečnost | Jméno zvířete se vypisuje jen automaticky escapovanou šablonou (i v `<title>` SVG). Grafy neobsahují inline styly ani skripty (CSP `style-src 'self'`, `script-src 'self'`): vzhled řídí třídy v `app.css`. Texty v SVG jsou čísla, data a pevné popisky, nikdy text zadaný uživatelem |
+
+**Přehled (dashboard).** Karta od dvou měření ukáže miniaturní graf (skrytý před čtečkami
+obrazovky, `aria-hidden`) z nejnovějších 12 měření a vedle něj text *Vývoj: poslední hmotnost
+21 kg, změna −0,4 kg za 33 dní.* (změna = poslední minus první z těchto měření, dny mezi nimi).
+Přehled načítá měření všech zvířat jedním dotazem (`prefetch_related`), takže počet dotazů nezávisí
+na počtu zvířat (test `django_assert_max_num_queries`). Karta čte všechna měření zvířete, protože
+úroveň upozornění potřebuje poslední BCS a MCS, které mohou být starší než posledních 12 měření:
+omezení na posledních N řádků v databázi by je mohlo skrýt.
+
+**Technika.** Výpočet geometrie je v čistém modulu `animals/charts.py` (vstup: měření, období,
+dnešní datum, volitelně cílová hmotnost se stavem; výstup: neměnné `dataclass`y se body, značkami
+os, souřadnicemi SVG a souhrnem). Dnešní datum dostává jako argument, hodinky nečte. Hmotnosti,
+rozdíly, procenta a hodnoty os jsou `Decimal` s pevným kontextem; `float` je jen v pixelových
+souřadnicích (hlídá `tests/backend/test_backend_static.py`). Souřadnice se v šablonách vypisují
+s `{% localize off %}`, jinak by je české nastavení psalo s desetinnou čárkou.
+
+**Co zatím není.** Trendová upozornění a pravidlo „rychlý úbytek hmotnosti“ (práh musí stanovit
+specialista, §12.9 bod 5), proložená trendová přímka, návrh úpravy energie z docs/05 §5.6 a docs/08
+§8.3 (patří ke kalkulačce), graf svalové kondice (MCS jen v tabulce), připomínky vážení, interaktivní
+popisky (jen prohlížečem zobrazený popisek bodu bez JavaScriptu) a export grafu.
+
+Testy: `tests/backend/test_animals_charts.py` (čisté funkce a vlastnosti `hypothesis`: souřadnice
+uvnitř oblasti grafu, x neklesá s datem, značky os pokrývají data, deterministický výstup),
+`tests/backend/test_animals_tracking.py` (oprávnění, období, atributy SVG, tabulka, tvary značek,
+popisek cílové hmotnosti, prázdné stavy, XSS) a `tests/backend/test_animals_dashboard.py`
+(sparkline, počet dotazů).
+

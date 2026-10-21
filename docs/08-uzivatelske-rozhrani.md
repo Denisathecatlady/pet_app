@@ -47,6 +47,14 @@ Dashboard zvířat
 | **Export PDF** | Profil zvířete, recept, rozbor, varování, verze dat a jádra, hash, datum, upozornění na omezení | PDF vždy obsahuje sekci „Omezení a nejistoty" |
 | **Nastavení** | Výchozí standard, zobrazení jednotek, odborný režim (role vet) | |
 
+> **Stav obrazovek Dashboard a Sledování hmotnosti a kondice 🛠:** implementováno v rozsahu bez
+> kalkulačky ([12](12-ucty-a-zvirata.md) §12.11). Dashboard ukazuje od dvou měření sparkline hmotnosti
+> s textovou alternativou; sledování má graf hmotnosti (období 30, 90, 365 dní nebo vše, tvar značky
+> podle toho, kdo měření zapsal, čárkovaná cílová hmotnost se štítkem *orientační* / *potvrzeno
+> veterinářem*), graf BCS s pásmem 4–5 z 9 a vždy tabulku všech zobrazených měření včetně MCS.
+> **Není** implementováno: body MCS v grafu, trendová upozornění, „rychlý úbytek hmotnosti“ (práh
+> musí stanovit 🩺 specialista) a *Návrh úpravy energie* (patří ke kalkulačce, docs/05 §5.6).
+
 ## 8.4 Vizuální jazyk stavů
 
 | Stav (§6.6) | Ikona | Barva | Text |

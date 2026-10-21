@@ -1,5 +1,6 @@
 """Dashboard (docs/08 §8.3): own animals and, for vets, the section "Sdílená zvířata"."""
 
+import re
 from datetime import timedelta
 from decimal import Decimal
 
@@ -10,6 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.roles import Role
+from animals import services
 from animals.models import AnimalHealthCondition, AnimalShare, HealthCondition, Species
 from animals.services import short_date
 
@@ -140,3 +142,109 @@ def dashboard_queries(client, make_user, make_animal, make_measurement):
 def test_dashboard_query_count_does_not_grow_with_animals(dashboard_queries, role):
     """Owner cards and the vet's "Sdílená zvířata" cards (with the owner's e-mail)."""
     assert dashboard_queries(role, 1) == dashboard_queries(role, 8)
+
+
+# --- Weight sparkline and link to the tracking page (docs/08 §8.3) --------------------------------
+
+NBSP = "\xa0"
+
+
+def sparkline_svgs(content: str) -> list[str]:
+    return re.findall(r'<svg class="sparkline__svg".*?</svg>', content, flags=re.DOTALL)
+
+
+def test_card_shows_a_hidden_sparkline_with_a_text_alternative(
+    logged_in_client, user, make_animal, make_measurement
+):
+    today = timezone.localdate()
+    rex = make_animal(user)
+    make_measurement(rex, measured_on=today - timedelta(days=33), weight_kg=Decimal("21.4"))
+    make_measurement(rex, measured_on=today - timedelta(days=10), weight_kg=Decimal("21.1"))
+    make_measurement(rex, measured_on=today - timedelta(days=1), weight_kg=Decimal("21"))
+
+    content = logged_in_client.get(DASHBOARD).content.decode()
+
+    (svg,) = sparkline_svgs(content)
+    assert 'aria-hidden="true"' in svg and 'focusable="false"' in svg
+    assert "<title" not in svg and "<desc" not in svg and "role=" not in svg
+    assert re.search(r'<polyline class="sparkline__line" points="[\d. ,-]+"', svg)
+    assert "," not in re.search(r'cx="([^"]*)"', svg).group(1)  # decimal point, not comma
+    text = f"poslední hmotnost 21{NBSP}kg, změna \N{MINUS SIGN}0,4{NBSP}kg za 32 dní"
+    assert f'<span class="sparkline__text">Vývoj: {text}.</span>' in content
+
+
+def test_card_without_two_measurements_has_no_sparkline(
+    logged_in_client, user, make_animal, make_measurement
+):
+    make_measurement(make_animal(user, name="Jedno"))
+    make_animal(user, name="Žádné")
+    content = logged_in_client.get(DASHBOARD).content.decode()
+    assert "sparkline" not in content
+    assert "poslední hmotnost" not in content.replace("Poslední hmotnost", "")
+
+
+def test_sparkline_uses_only_the_newest_measurements(
+    logged_in_client, user, make_animal, make_measurement
+):
+    today = timezone.localdate()
+    animal = make_animal(user)
+    make_measurement(animal, measured_on=today - timedelta(days=300), weight_kg=Decimal("30"))
+    for index in range(services.SPARKLINE_MEASUREMENTS):  # the newest twelve, one per day
+        make_measurement(
+            animal, measured_on=today - timedelta(days=11 - index), weight_kg=Decimal(index + 20)
+        )
+    content = logged_in_client.get(DASHBOARD).content.decode()
+    assert f"změna +11{NBSP}kg za 11 dní" in content  # 20 → 31 kg; the old 30 kg is not used
+    (svg,) = sparkline_svgs(content)
+    assert len(re.search(r'points="([^"]*)"', svg).group(1).split()) == 12
+
+
+def test_card_links_to_the_tracking_page(logged_in_client, user, make_animal):
+    rex = make_animal(user)
+    content = logged_in_client.get(DASHBOARD).content.decode()
+    link = reverse("animals:tracking", args=[rex.uuid])
+    assert (
+        f'<a href="{link}">Hmotnost a kondice<span class="visually-hidden"> – Rex</span></a>'
+        in (content)
+    )
+
+
+def test_vet_sees_the_sparkline_on_shared_cards(
+    client, make_user, make_animal, make_measurement, vet_user
+):
+    owner = make_user("owner@example.cz")
+    animal = make_animal(owner, name="Sdílený")
+    make_measurement(animal, measured_on=timezone.localdate() - timedelta(days=5))
+    make_measurement(animal, measured_on=timezone.localdate() - timedelta(days=1))
+    AnimalShare.objects.create(animal=animal, vet=vet_user, granted_by=owner)
+    client.force_login(vet_user)
+    assert len(sparkline_svgs(client.get(DASHBOARD).content.decode())) == 1
+
+
+def test_dashboard_with_sparklines_runs_a_constant_number_of_queries(
+    client, make_user, make_animal, make_measurement, django_assert_max_num_queries
+):
+    """Cards with sparklines (several measurements each) add no query per animal."""
+    today = timezone.localdate()
+    user = make_user("many@example.cz")
+
+    def add_animals(count: int, offset: int) -> None:
+        for index in range(count):
+            animal = make_animal(user, name=f"Zvíře {offset + index}")
+            for days in (30, 20, 10, 1):
+                make_measurement(animal, measured_on=today - timedelta(days=days), bcs=5)
+            AnimalHealthCondition.objects.create(
+                animal=animal, condition=HealthCondition.objects.get(code="FOOD_ALLERGY")
+            )
+
+    client.force_login(user)
+    add_animals(1, 0)
+    with CaptureQueriesContext(connection) as baseline:
+        assert client.get(DASHBOARD).status_code == 200
+    add_animals(9, 1)
+
+    with django_assert_max_num_queries(len(baseline)):
+        response = client.get(DASHBOARD)
+    content = response.content.decode()
+    assert content.count('class="card"') == 10
+    assert len(sparkline_svgs(content)) == 10

@@ -78,6 +78,7 @@ class Endpoint:
         a = world.animal.uuid
         kwargs = {
             "detail": {"animal_uuid": a},
+            "tracking": {"animal_uuid": a},
             "edit": {"animal_uuid": a},
             "delete": {"animal_uuid": a},
             "measurement_add": {"animal_uuid": a},
@@ -96,6 +97,7 @@ def post_data(name: str) -> dict:
     today = timezone.localdate().isoformat()
     return {
         "detail": {},
+        "tracking": {},
         # Every field differs from the ``world`` animal, so a leaked edit is visible.
         "edit": {
             "name": "Změněno",
@@ -123,6 +125,7 @@ OWNER_ONLY = {"owner": 200, "shared_vet": 403}
 OWNER_ONLY_POST = {"owner": 302, "shared_vet": 403}
 ENDPOINTS = [
     Endpoint("detail", {"owner": 200, "shared_vet": 200}, {r: 405 for r in ROLES[:-1]}),
+    Endpoint("tracking", {"owner": 200, "shared_vet": 200}, {r: 405 for r in ROLES[:-1]}),
     Endpoint("edit", OWNER_ONLY, OWNER_ONLY_POST),
     Endpoint("delete", OWNER_ONLY, OWNER_ONLY_POST),
     Endpoint(

@@ -9,6 +9,7 @@ urlpatterns = [
     path("<uuid:animal_uuid>/", views.animal_detail, name="detail"),
     path("<uuid:animal_uuid>/upravit/", views.animal_edit, name="edit"),
     path("<uuid:animal_uuid>/smazat/", views.animal_delete, name="delete"),
+    path("<uuid:animal_uuid>/hmotnost/", views.tracking, name="tracking"),
     path("<uuid:animal_uuid>/mereni/nove/", views.measurement_add, name="measurement_add"),
     path(
         "<uuid:animal_uuid>/mereni/<uuid:measurement_uuid>/smazat/",

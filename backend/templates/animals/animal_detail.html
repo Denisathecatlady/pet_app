@@ -14,6 +14,7 @@
 
 <p class="actions">
   {% if access.can.ADD_MEASUREMENT %}<a class="button" href="{% url 'animals:measurement_add' animal.uuid %}">Zapsat měření</a>{% endif %}
+  <a class="button button--secondary" href="{% url 'animals:tracking' animal.uuid %}">Graf hmotnosti a kondice</a>
   {% if access.can.EDIT %}<a class="button button--secondary" href="{% url 'animals:edit' animal.uuid %}">Upravit profil</a>{% endif %}
 </p>
 
@@ -72,6 +73,7 @@
 
 <section aria-labelledby="measurements-title">
   <h2 id="measurements-title">Hmotnost a kondice</h2>
+  <p><a href="{% url 'animals:tracking' animal.uuid %}">Zobrazit grafy hmotnosti a BCS</a></p>
   {% if measurements %}
     <div class="table-wrap" role="region" aria-labelledby="measurements-title" tabindex="0">
       <table class="data">
@@ -94,7 +96,7 @@
               <td class="num">{{ measurement.weight_kg|kg }}</td>
               <td>{% if measurement.bcs %}{{ measurement.bcs }}/9{% else %}nezadáno{% endif %}</td>
               <td>{{ measurement.get_mcs_display|default:"nezadáno" }}</td>
-              <td>{{ measurement.get_assessed_by_display }}{% if measurement.assessed_by == "VET" and measurement.created_by %}{% if access.is_owner or measurement.created_by_id == user.pk %} ({{ measurement.created_by.email }}){% endif %}{% endif %}</td>
+              <td>{% include "animals/includes/measurement_assessor.html" %}</td>
               <td>{{ measurement.note|linebreaksbr }}</td>
               {% if access.can.EDIT %}
                 <td><a href="{% url 'animals:measurement_delete' animal.uuid measurement.uuid %}">Smazat<span class="visually-hidden"> měření ze dne {{ measurement.measured_on|short }}</span></a></td>

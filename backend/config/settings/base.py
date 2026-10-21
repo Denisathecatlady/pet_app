@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     "core",
     "accounts",
     "animals",
+    "catalog",
     # Further project apps (recipes, analyses, …) are added below as they are built.
 ]
 

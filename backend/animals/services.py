@@ -15,11 +15,11 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch, QuerySet, prefetch_related_objects
 from django.utils import timezone
-from django.utils.dateformat import format as format_date
 
 from accounts.models import User, UserManager
 from accounts.roles import Role
 
+from . import charts
 from .models import (
     Animal,
     AnimalHealthCondition,
@@ -30,6 +30,7 @@ from .models import (
     PhysiologicalState,
     TargetWeightStatus,
 )
+from .text import plural, short_date
 
 # --- Attention level (docs/09 §9.2, docs/08 §8.6) ---------------------------------------------
 
@@ -81,10 +82,6 @@ class Attention(NamedTuple):
 
     level: str
     reasons: tuple[Reason, ...]
-
-
-def short_date(value: date) -> str:
-    return format_date(value, "j. n. Y")
 
 
 # What a score means on the nine-point scale; worded as a reading of the score the user
@@ -214,19 +211,6 @@ def attention(animal: Animal, *, today: date | None = None) -> Attention:
 # --- Age and summaries ------------------------------------------------------------------------
 
 
-def plural(count: int, one: str, few: str, many: str) -> str:
-    """Return the Czech form of a noun for ``count``.
-
-    Example: ``plural(2, "zdravotní stav", "zdravotní stavy", "zdravotních stavů")``
-    → ``"zdravotní stavy"``. 1 → ``one``, 2–4 → ``few``, anything else (0, 5+) → ``many``.
-    """
-    if count == 1:
-        return one
-    if 2 <= count <= 4:
-        return few
-    return many
-
-
 def age_text(animal: Animal, *, today: date | None = None) -> str:
     """Return the age in Czech ("5 měsíců", "asi 3 roky") or "neznámý" without a birth date."""
     if animal.birth_date is None:
@@ -251,7 +235,11 @@ class AnimalSummary:
     latest_weight: BodyMeasurement | None
     latest_bcs: BodyMeasurement | None
     attention: Attention
+    trend: charts.Sparkline | None  # weight sparkline; None below two measurements
 
+
+# The sparkline on a card draws the newest measurements only (docs/08 §8.3).
+SPARKLINE_MEASUREMENTS: Final = 12
 
 SUMMARY_PREFETCH: Final = (
     "measurements",
@@ -260,11 +248,15 @@ SUMMARY_PREFETCH: Final = (
 
 
 def summarize(animals: Iterable[Animal], *, today: date | None = None) -> list[AnimalSummary]:
-    """Build dashboard summaries; prefetch ``SUMMARY_PREFETCH`` to avoid extra queries."""
+    """Build dashboard summaries; prefetch ``SUMMARY_PREFETCH`` to avoid extra queries.
+
+    The sparkline of a card uses the newest ``SPARKLINE_MEASUREMENTS`` measurements taken
+    from the prefetched list, so the number of queries does not depend on the animals.
+    """
     today = today or timezone.localdate()
     summaries = []
     for animal in animals:
-        measurements = list(animal.measurements.all())
+        measurements = list(animal.measurements.all())  # newest first (Meta.ordering)
         summaries.append(
             AnimalSummary(
                 animal=animal,
@@ -272,6 +264,7 @@ def summarize(animals: Iterable[Animal], *, today: date | None = None) -> list[A
                 latest_weight=measurements[0] if measurements else None,
                 latest_bcs=next((m for m in measurements if m.bcs is not None), None),
                 attention=attention(animal, today=today),
+                trend=charts.build_sparkline(reversed(measurements[:SPARKLINE_MEASUREMENTS])),
             )
         )
     return summaries

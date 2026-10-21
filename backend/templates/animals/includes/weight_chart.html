@@ -1,0 +1,51 @@
+{% load animal_tags l10n %}
+<figure class="chart">
+  <div class="chart__scroll" role="region" aria-labelledby="weight-title" tabindex="0">
+    {% localize off %}
+    <svg class="chart__svg" viewBox="0 0 {{ weight.frame.width }} {{ weight.frame.height }}" role="img" aria-labelledby="weight-svg-title weight-svg-desc" focusable="false">
+      <title id="weight-svg-title">Graf hmotnosti zvířete {{ animal.name }} za {{ period.phrase }}</title>
+      <desc id="weight-svg-desc">{{ weight_description }}</desc>
+      <text class="chart__axis-title" transform="translate({{ weight.frame.title_x }} {{ weight.frame.center_y }}) rotate(-90)" text-anchor="middle">hmotnost (kg)</text>
+      {% for tick in weight.y_ticks %}
+        <line class="chart__grid" x1="{{ weight.frame.left }}" y1="{{ tick.y }}" x2="{{ weight.frame.right }}" y2="{{ tick.y }}"/>
+        <text class="chart__tick" x="{{ weight.frame.y_label_x }}" y="{{ tick.y }}" dy="0.35em" text-anchor="end">{{ tick.label }}</text>
+      {% endfor %}
+      {% for tick in weight.x_ticks %}
+        <line class="chart__axis" x1="{{ tick.x }}" y1="{{ weight.frame.bottom }}" x2="{{ tick.x }}" y2="{{ weight.frame.x_tick_end }}"/>
+        <text class="chart__tick" x="{{ tick.x }}" y="{{ weight.frame.x_label_y }}" text-anchor="middle">{{ tick.label }}</text>
+      {% endfor %}
+      <line class="chart__axis" x1="{{ weight.frame.left }}" y1="{{ weight.frame.top }}" x2="{{ weight.frame.left }}" y2="{{ weight.frame.bottom }}"/>
+      <line class="chart__axis" x1="{{ weight.frame.left }}" y1="{{ weight.frame.bottom }}" x2="{{ weight.frame.right }}" y2="{{ weight.frame.bottom }}"/>
+      {% if weight.target %}
+        <line class="chart__target" x1="{{ weight.frame.left }}" y1="{{ weight.target.y }}" x2="{{ weight.frame.right }}" y2="{{ weight.target.y }}"/>
+        <text class="chart__label chart__label--target" x="{{ weight.target.label.x }}" y="{{ weight.target.label.y }}" text-anchor="{{ weight.target.label.anchor }}">{{ weight.target.label.text }}</text>
+      {% endif %}
+      <polyline class="chart__line" points="{{ weight.polyline }}"/>
+      {% for point in weight.points %}
+        {% if point.is_vet %}
+          <polygon class="chart__point chart__point--vet" points="{{ point.diamond_points }}"><title>{{ point.description }}</title></polygon>
+        {% else %}
+          <circle class="chart__point chart__point--owner" cx="{{ point.x }}" cy="{{ point.y }}" r="5"><title>{{ point.description }}</title></circle>
+        {% endif %}
+      {% endfor %}
+      {% if weight.end_label %}
+        <text class="chart__label" x="{{ weight.end_label.x }}" y="{{ weight.end_label.y }}" text-anchor="{{ weight.end_label.anchor }}">{{ weight.end_label.text }}</text>
+      {% endif %}
+    </svg>
+    {% endlocalize %}
+  </div>
+  <figcaption class="chart__caption">
+    {% include "animals/includes/chart_legend.html" with chart=weight legend_label="Legenda grafu hmotnosti" %}
+    <p>Zobrazené období: {{ weight.start|short }} – {{ weight.end|short }}.</p>
+    {% if change_sentence %}<p class="chart__change">{{ change_sentence }}</p>{% endif %}
+    <h3>Souhrn za zvolené období</h3>
+    <dl class="facts">
+      <div><dt>Počet měření</dt><dd>{{ weight.summary.count }}</dd></div>
+      <div><dt>První hmotnost</dt><dd>{{ weight.summary.first_kg|kg }} ({{ weight.summary.first_on|short }})</dd></div>
+      <div><dt>Poslední hmotnost</dt><dd>{{ weight.summary.last_kg|kg }} ({{ weight.summary.last_on|short }})</dd></div>
+      <div><dt>Rozdíl v kilogramech</dt><dd>{{ weight.summary.change_kg_text }}</dd></div>
+      <div><dt>Rozdíl v procentech</dt><dd>{{ weight.summary.change_pct_text|default:"nelze určit" }}</dd></div>
+      <div><dt>Rozpětí v dnech</dt><dd>{{ weight.summary.days }}</dd></div>
+    </dl>
+  </figcaption>
+</figure>

@@ -1,0 +1,2 @@
+{% load l10n %}
+<p class="sparkline">{% localize off %}<svg class="sparkline__svg" viewBox="0 0 {{ trend.width }} {{ trend.height }}" width="{{ trend.width }}" height="{{ trend.height }}" aria-hidden="true" focusable="false"><polyline class="sparkline__line" points="{{ trend.points }}"/><circle class="sparkline__dot" cx="{{ trend.last_x }}" cy="{{ trend.last_y }}" r="3"/></svg>{% endlocalize %}<span class="sparkline__text">Vývoj: {{ trend.text }}.</span></p>

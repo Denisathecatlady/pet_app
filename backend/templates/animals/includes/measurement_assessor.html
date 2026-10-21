@@ -1,0 +1,1 @@
+{{ measurement.get_assessed_by_display }}{% if measurement.assessed_by == "VET" and measurement.created_by %}{% if access.is_owner or measurement.created_by_id == user.pk %} ({{ measurement.created_by.email }}){% endif %}{% endif %}

@@ -1,0 +1,6 @@
+<ul class="chart-legend" aria-label="{{ legend_label }}">
+  {% if chart.has_owner %}<li><svg class="chart-legend__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle class="chart__point chart__point--owner" cx="8" cy="8" r="5"/></svg><span>kolečko: měření zapsané majitelem</span></li>{% endif %}
+  {% if chart.has_vet %}<li><svg class="chart-legend__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><polygon class="chart__point chart__point--vet" points="8,1 15,8 8,15 1,8"/></svg><span>kosočtverec: měření zapsané veterinárním lékařem</span></li>{% endif %}
+  {% if chart.target %}<li><svg class="chart-legend__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line class="chart__target" x1="0" y1="8" x2="16" y2="8"/></svg><span>čárkovaná čára: {{ chart.target.name }}</span></li>{% endif %}
+  {% if chart.band %}<li><svg class="chart-legend__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect class="chart__band" x="0" y="3" width="16" height="10"/></svg><span>podklad: {{ chart.band.label.text }}</span></li>{% endif %}
+</ul>

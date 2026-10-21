@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% load animal_tags %}
+{% block title %}Hmotnost a kondice: {{ animal.name }}{% endblock %}
+{% block content %}
+<nav aria-label="Drobečková navigace" class="breadcrumbs">
+  <a href="{% url 'core:dashboard' %}">Přehled</a> <span aria-hidden="true">›</span>
+  <a href="{{ animal.get_absolute_url }}">{{ animal.name }}</a> <span aria-hidden="true">›</span>
+  <span aria-current="page">Sledování hmotnosti a kondice</span>
+</nav>
+
+<h1>Sledování hmotnosti a kondice</h1>
+<p class="lead">{{ animal.name }} ({{ animal.get_species_display }})</p>
+<p class="hint">Grafy jen zobrazují zapsaná měření. Nehodnotí, zda je vývoj hmotnosti nebo
+kondice v pořádku, a nedávají žádná doporučení ke krmení. To posoudí veterinární lékař.</p>
+
+<nav aria-label="Zobrazené období" class="period-switch">
+  <ul>
+    {% for item, current in periods %}
+      <li><a href="?obdobi={{ item.param }}"{% if current %} aria-current="true"{% endif %}>{{ item.label }}</a></li>
+    {% endfor %}
+  </ul>
+</nav>
+
+<section aria-labelledby="weight-title">
+  <h2 id="weight-title">Hmotnost</h2>
+  {% if weight.drawable %}
+    {% include "animals/includes/weight_chart.html" %}
+  {% else %}
+    <div class="notice notice--info">
+      <span class="notice__icon" aria-hidden="true">ⓘ</span>
+      <div>
+        {% if total == 0 %}
+          <p>Zatím není zapsané žádné měření. Graf hmotnosti se zobrazí, jakmile budou zapsaná
+          alespoň dvě měření.</p>
+        {% elif weight.summary.count == 0 %}
+          <p>V období {{ weight.start|short }} – {{ weight.end|short }} není zapsané žádné měření.
+          Zvolte delší období nebo zapište nové měření.</p>
+        {% else %}
+          <p>V období {{ weight.start|short }} – {{ weight.end|short }} je jen jedno měření:
+          {{ weight.summary.last_kg|kg }} dne {{ weight.summary.last_on|short }}. Graf potřebuje
+          alespoň dvě měření. Zapište další měření nebo zvolte delší období.</p>
+        {% endif %}
+        {% if access.can.ADD_MEASUREMENT %}
+          <p>Měření zapíšete tlačítkem <em>Zapsat měření</em>: zadáte datum, hmotnost a podle potřeby
+          BCS, svalovou kondici a poznámku.</p>
+          <p><a class="button" href="{% url 'animals:measurement_add' animal.uuid %}">Zapsat měření</a></p>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+</section>
+
+<section aria-labelledby="bcs-title">
+  <h2 id="bcs-title">Tělesná kondice (BCS)</h2>
+  {% if bcs.drawable %}
+    {% include "animals/includes/bcs_chart.html" %}
+  {% else %}
+    <div class="notice notice--info">
+      <span class="notice__icon" aria-hidden="true">ⓘ</span>
+      <div>
+        {% if bcs.points|length == 0 %}
+          <p>V období {{ bcs.start|short }} – {{ bcs.end|short }} není zapsané žádné hodnocení BCS
+          (skóre tělesné kondice 1–9). Zadáte ho u měření hmotnosti. Graf se zobrazí od dvou
+          hodnocení.</p>
+        {% else %}
+          {% with only=bcs.points.0 %}
+          <p>V období {{ bcs.start|short }} – {{ bcs.end|short }} je jen jedno hodnocení BCS:
+          {{ only.value }}/9 dne {{ only.measured_on|short }}. Graf se zobrazí od dvou
+          hodnocení.</p>
+          {% endwith %}
+        {% endif %}
+        {% if access.can.ADD_MEASUREMENT %}
+          <p><a class="button" href="{% url 'animals:measurement_add' animal.uuid %}">Zapsat měření</a></p>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+</section>
+
+<section aria-labelledby="table-title">
+  <h2 id="table-title">Tabulka měření</h2>
+  <p>Tabulka obsahuje všechna měření ze zobrazeného období, tedy stejná data jako grafy.
+  {% if outside_period %}Mimo zobrazené období je dalších {{ outside_period }} měření:
+  <a href="?obdobi=vse">zobrazit vše</a>.{% endif %}</p>
+  <div class="table-wrap" role="region" aria-labelledby="table-title" tabindex="0">
+    <table class="data">
+      <caption class="visually-hidden">Měření hmotnosti, BCS a MCS za {{ period.phrase }}, nejnovější nahoře</caption>
+      <thead>
+        <tr>
+          <th scope="col">Datum</th>
+          <th scope="col">Hmotnost</th>
+          <th scope="col">BCS (tělesná kondice)</th>
+          <th scope="col">Svalová kondice (MCS)</th>
+          <th scope="col">Posoudil</th>
+          <th scope="col">Poznámka</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for measurement in rows %}
+          <tr>
+            <td>{{ measurement.measured_on|short }}</td>
+            <td class="num">{{ measurement.weight_kg|kg }}</td>
+            <td>{% if measurement.bcs %}{{ measurement.bcs }}/9{% else %}nezadáno{% endif %}</td>
+            <td>{{ measurement.get_mcs_display|default:"nezadáno" }}</td>
+            <td>{% include "animals/includes/measurement_assessor.html" %}</td>
+            <td>{{ measurement.note|linebreaksbr }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6">V zobrazeném období není zapsané žádné měření.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<p class="actions">
+  {% if access.can.ADD_MEASUREMENT %}<a class="button" href="{% url 'animals:measurement_add' animal.uuid %}">Zapsat měření</a>{% endif %}
+  <a class="button button--secondary" href="{{ animal.get_absolute_url }}">Zpět na profil zvířete</a>
+</p>
+{% endblock %}

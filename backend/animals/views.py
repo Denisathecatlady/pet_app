@@ -13,9 +13,10 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from . import services
+from . import charts, services
 from .forms import (
     AnimalForm,
     ConditionForm,
@@ -180,6 +181,48 @@ def measurement_delete(
         "button": "Smazat měření",
     }
     return render(request, "animals/confirm.html", context)
+
+
+@login_required
+@require_GET
+def tracking(request: HttpRequest, animal_uuid: UUID) -> HttpResponse:
+    """Weight and body-condition charts with the data table (docs/12 §12.11).
+
+    ``?obdobi=`` picks the period (``30``, ``90``, ``365`` or ``vse``); anything else
+    falls back to 90 days. The page only describes the records: it never judges a
+    change of weight or recommends anything. The table is the accessible alternative of
+    the charts and has the same content as the charts for the chosen period; like the
+    detail page, it shows the e-mail of a vet who wrote a measurement only to the owner
+    and to that vet.
+    """
+    access = get_animal_for(request.user, animal_uuid, Action.VIEW)
+    animal = access.animal
+    period = charts.parse_period(request.GET.get("obdobi"))
+    # Newest first from the database; the charts want the oldest recorded first.
+    measurements = list(animal.measurements.select_related("created_by"))
+    data = charts.build_tracking(
+        reversed(measurements),
+        period,
+        timezone.localdate(),
+        target_weight_kg=animal.target_weight_kg,
+        target_status=animal.target_weight_status,
+    )
+    context = {
+        "access": access,
+        "animal": animal,
+        "period": period,
+        "periods": [(item, item == period) for item in charts.PERIODS],
+        "data": data,
+        "weight": data.weight,
+        "bcs": data.bcs,
+        "weight_description": charts.describe_weight_chart(data.weight),
+        "bcs_description": charts.describe_bcs_chart(data.bcs),
+        "change_sentence": charts.change_sentence(data.weight.summary),
+        "rows": list(reversed(data.measurements)),
+        "outside_period": len(measurements) - len(data.measurements),
+        "total": len(measurements),
+    }
+    return render(request, "animals/tracking.html", context)
 
 
 # --- Health conditions ------------------------------------------------------------------------

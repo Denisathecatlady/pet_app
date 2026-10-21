@@ -8,7 +8,8 @@ verzovaným standardem (výchozí FEDIAF 2025) a u každého čísla ukáže zdr
 > Existuje pomocný nástroj `refdata` pro kontrolu přepisu tabulek standardu (milník M1), výpočetní
 > jádro `nutricalc` (milník M2: od energie a součtů živin po vyhodnocení proti standardu a souhrn,
 > ověřené jen na syntetických datech), viz [Nástroje](#nástroje), a webová aplikace v Djangu
-> (účty, role, GDPR, profily zvířat, hmotnost, BCS a MCS, zdravotní stavy, sdílení s veterinářem),
+> (účty, role, GDPR, profily zvířat, hmotnost, BCS a MCS s grafy, zdravotní stavy, sdílení
+> s veterinářem),
 > viz [Webová aplikace](#webová-aplikace). Kalkulačka a nutriční rozbor ve webové aplikaci zatím nejsou.
 
 ## Dokumentace Fáze 1
@@ -93,7 +94,8 @@ Adresář [`backend/`](backend/) obsahuje Django 5.2 LTS projekt (`config`) s ap
 - `accounts`: uživatel přihlašovaný e-mailem, role jako skupiny `owner`, `vet`, `data_curator`,
   `nutrition_reviewer`, registrace s aktivací e-mailem, přihlášení chráněné `django-axes`, změna
   a obnova hesla, profil, export osobních údajů do JSON a smazání účtu;
-- `animals`: profily psů a koček, měření hmotnosti, BCS a MCS, zdravotní stavy z číselníku
+- `animals`: profily psů a koček, měření hmotnosti, BCS a MCS s grafy hmotnosti a BCS (SVG bez
+  JavaScriptu, jen popisné), zdravotní stavy z číselníku
   podle docs/09 §9.2, úroveň upozornění u každého zvířete, sdílení s veterinářem a potvrzení
   cílové hmotnosti veterinářem.
 
