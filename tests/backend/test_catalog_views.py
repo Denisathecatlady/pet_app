@@ -526,7 +526,7 @@ def test_search_result_reports_the_page_actually_shown(sixty):
 
 
 def test_list_does_not_claim_that_the_application_relies_on_the_sources(client, library):
-    """Nothing in the application uses a source yet (docs/13-zdroje-v-aplikaci.md §13.7)."""
+    """Nothing in the application uses a source yet (docs/15-zdroje-v-aplikaci.md §15.7)."""
     text = " ".join(html.unescape(strip_tags(client.get(LIST).content.decode())).split())
 
     assert "na které se aplikace odvolává" not in text

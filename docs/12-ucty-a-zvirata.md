@@ -21,7 +21,7 @@ Webová aplikace vede evidenci, **nepočítá** výživu. Obsahuje:
   (sparkline) s textem a odkaz na stránku sledování (§12.11);
 - **knihovna zdrojů** (aplikace `catalog`): veřejné stránky `/zdroje/` s odbornými zdroji, úrovní
   důkazů a stavem jejich ověření; nezávisí na přihlášení ani na zvířatech
-  ([13](13-zdroje-v-aplikaci.md)).
+  ([15](15-zdroje-v-aplikaci.md)).
 
 Kalkulačka, recepty, suroviny, standardy, výpočet energie a nutriční rozbor jsou **odložené**
 (§12.7). Kód webové aplikace neimportuje `nutricalc` ani `refdata` (hlídá test
@@ -85,9 +85,9 @@ Modely odpovídají docs/07 §7.4 **bez nutričních vazeb** (`preferred_standar
 - `medications_affecting_diet` není samostatné pole (stav `MEDICATION_AFFECTING_DIET` + poznámka);
   `AnimalHealthCondition` má navíc pole `note`;
 - `HealthCondition.source` (vazba na `ScientificSource`) měl nahradit textové pole `source_note`
-  a přibyl popis `description_cs`. Katalog zdrojů už existuje ([13](13-zdroje-v-aplikaci.md),
+  a přibyl popis `description_cs`. Katalog zdrojů už existuje ([15](15-zdroje-v-aplikaci.md),
   model `ScientificSource`), ale zdravotní stavy na něj zatím navázané nejsou: zůstává textové
-  pole `source_note` a vazba přijde s připojením zdrojů k datům ([13](13-zdroje-v-aplikaci.md) §13.7);
+  pole `source_note` a vazba přijde s připojením zdrojů k datům ([15](15-zdroje-v-aplikaci.md) §15.7);
 - `HealthCondition.mode` používá vlastní volby `ConditionMode` (`EXPERT_REQUIRED`, `BLOCKED`),
   ne celé `WarningLevel`, protože jiné úrovně stav mít nesmí;
 - abstraktní `TimeStamped` se nepoužívá: `Animal` má `created_at` a `updated_at`, ale ne
@@ -219,9 +219,9 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
 
 | Funkce | Jak |
 |---|---|
-| Export (čl. 15 a 20) | *Můj účet → Stáhnout moje data (JSON)*. Oddíl `account`: profil, role, úspěšná přihlášení, počitadla neúspěšných pokusů o přihlášení (čas, IP adresa, prohlížeč; bez dat odeslaného formuláře) a případný protokol jednotlivých pokusů. Oddíl `animals`: vlastní zvířata se všemi měřeními, zdravotními stavy, sdíleními a historií změn každého záznamu; u veterináře seznam přijatých sdílení (jen UUID zvířete a data, bez údajů majitele). Jiní uživatelé se v exportu objeví jen takto: e-mail veterinárního lékaře, se kterým uživatel zvíře sdílel (sdílení, potvrzení cílové hmotnosti, autor měření nebo změny); kdokoli jiný (např. správce, který záznam upravil v administraci) jen rolí „správce aplikace“ nebo „jiný uživatel“, bez e-mailu. Oddíl `catalog`: zdroje, u kterých je uživatel zapsán jako ověřovatel, a změny zdrojů, které provedl v administraci ([13](13-zdroje-v-aplikaci.md) §13.8) |
+| Export (čl. 15 a 20) | *Můj účet → Stáhnout moje data (JSON)*. Oddíl `account`: profil, role, úspěšná přihlášení, počitadla neúspěšných pokusů o přihlášení (čas, IP adresa, prohlížeč; bez dat odeslaného formuláře) a případný protokol jednotlivých pokusů. Oddíl `animals`: vlastní zvířata se všemi měřeními, zdravotními stavy, sdíleními a historií změn každého záznamu; u veterináře seznam přijatých sdílení (jen UUID zvířete a data, bez údajů majitele). Jiní uživatelé se v exportu objeví jen takto: e-mail veterinárního lékaře, se kterým uživatel zvíře sdílel (sdílení, potvrzení cílové hmotnosti, autor měření nebo změny); kdokoli jiný (např. správce, který záznam upravil v administraci) jen rolí „správce aplikace“ nebo „jiný uživatel“, bez e-mailu. Oddíl `catalog`: zdroje, u kterých je uživatel zapsán jako ověřovatel, a změny zdrojů, které provedl v administraci ([15](15-zdroje-v-aplikaci.md) §15.8) |
 | Výmaz (čl. 17) | Smazání účtu smaže všechna zvířata uživatele, jejich měření, stavy, sdílení **i historii změn** (`cascade_delete_history`) a záznamy o přihlášení (`django-axes`). Smazání jednoho zvířete, měření nebo stavu maže i jeho historii. V protokolu administrace zůstane záznam o úpravě (kdo, kdy, která pole), ale text smazaného objektu (e-mail, jméno zvířete) se nahradí „[smazaný záznam]“. Úklid běží v signálu `post_delete`, tedy i při smazání účtu správcem v administraci a při mazání neaktivovaných registrací |
-| Smazání účtu kurátora zdrojů | Zdroj, který kurátor ověřil, zůstane (je to veřejný odborný záznam); pole *ověřil* se vymaže i z historie změn zdroje a datum ověření zůstane ([13](13-zdroje-v-aplikaci.md) §13.3) |
+| Smazání účtu kurátora zdrojů | Zdroj, který kurátor ověřil, zůstane (je to veřejný odborný záznam); pole *ověřil* se vymaže i z historie změn zdroje a datum ověření zůstane ([15](15-zdroje-v-aplikaci.md) §15.3) |
 | Neaktivované registrace | Registraci lze založit na cizí e-mail; neaktivovaný účet smaže příkaz `purge_pending_accounts` po 7 dnech (`PENDING_ACCOUNT_RETENTION`, spouští se denně, README) |
 | Smazání účtu veterináře | Zaniknou sdílení, která dostal (i s historií). Jím zapsaná měření zůstanou majiteli, jen bez vazby na účet. Jím potvrzené cílové hmotnosti se vrátí na *orientační*. Stránka smazání účtu to veterináři předem vysvětlí |
 | Sdílení | Výslovné, jen s účtem s rolí `vet`, kdykoli odvolatelné; odvolání platí okamžitě. Záznam o odvolaném sdílení zůstává (kdo, komu, od kdy do kdy) do smazání zvířete nebo účtu |

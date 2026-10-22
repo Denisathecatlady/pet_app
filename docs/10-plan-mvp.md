@@ -35,7 +35,7 @@ Každá další funkce stojí na jádře, kterému už lze věřit.
 
 > **Stav registru zdrojů (součást M1) 🛠:** všech 37 zdrojů registru [zdroje.md](zdroje.md) je
 > v aplikaci jako `ScientificSource` a veřejná *Knihovna zdrojů* ukazuje jejich úroveň odbornosti a
-> stav ověření ([13](13-zdroje-v-aplikaci.md)). Žádný zdroj zatím nemá v knihovně značku **P**
+> stav ověření ([15](15-zdroje-v-aplikaci.md)). Žádný zdroj zatím nemá v knihovně značku **P**
 > (ověřená hodnota v primárním zdroji); data standardů a surovin (zbytek M1) a jejich schválení
 > specialistou zůstávají odložené. **Oprava značky:** hodnoty `[FEDIAF2025]` (95/110 a 75/100 kcal ME, Ca:P 2:1) byly v dokumentech [03](03-nutricni-pozadavky.md) §3.3 a [05](05-energeticky-model.md) §5.3 dříve značeny ✅ P. Čteny byly jen z výpisů vyhledávače, proto jsou nově ✅ S, jako v registru zdrojů.
 

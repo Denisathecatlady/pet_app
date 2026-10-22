@@ -1,5 +1,5 @@
 """Library of scientific sources: the model ``ScientificSource`` (docs/07 §7.4,
-docs/13-zdroje-v-aplikaci.md).
+docs/15-zdroje-v-aplikaci.md).
 
 The registry docs/zdroje.md is the single source of truth. ``catalog/data/sources.json``
 mirrors it and ``manage.py load_sources`` loads it into this table. The model describes
@@ -8,7 +8,7 @@ mirrors it and ``manage.py load_sources`` loads it into this table. The model de
 Every change is kept in the history (django-simple-history, docs/07 §7.6). The history
 is not deleted together with a source: it is the audit trail of reference data.
 
-Deviations from the sketch in docs/07 §7.4 are listed in docs/13-zdroje-v-aplikaci.md §13.3
+Deviations from the sketch in docs/07 §7.4 are listed in docs/15-zdroje-v-aplikaci.md §15.3
 (nullable year, the fields ``publication_details``, ``type_note``, ``verification_markers``,
 ``verification_note`` and ``key_findings``, ``verified_by`` set to NULL when the account is
 deleted).
@@ -105,7 +105,7 @@ MARKERS: Final = (
 # one in this order, i.e. how far into the *content* the verification reached. A mark of a
 # secondary source (S) says more about the content than bibliography alone (B); an abstract
 # (A) more than a secondary source; the primary source (P) most. Working order of the
-# developer (docs/13-zdroje-v-aplikaci.md §13.4), 🩺 to be confirmed by the specialist.
+# developer (docs/15-zdroje-v-aplikaci.md §15.4), 🩺 to be confirmed by the specialist.
 VERIFICATION_STRENGTH: Final = {
     VerificationLevel.NONE: 0,
     VerificationLevel.B: 1,

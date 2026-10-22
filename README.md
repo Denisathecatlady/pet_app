@@ -30,8 +30,8 @@ aplikaci zatím nejsou.
 | 10 | [Plán MVP](docs/10-plan-mvp.md) | Milníky, odhady, **doporučení nejmenší verze (MVP-0)** |
 | 11 | [Testovací plán](docs/11-testovaci-plan.md) | Katalog testů, golden příklady, odborná validace |
 | 12 | [Účty a zvířata](docs/12-ucty-a-zvirata.md) | Webová aplikace: role, oprávnění, upozornění u zvířat, GDPR, otevřené body |
-| 13 | [Knihovna zdrojů v aplikaci](docs/13-zdroje-v-aplikaci.md) | Veřejná knihovna `ScientificSource`: stránky, model, převod registru, aktualizace |
-| 13 (provoz) | [Nasazení a provoz](docs/13-nasazeni-a-provoz.md) | Proměnné prostředí, první nasazení, proxy a TLS, denní úlohy, **zálohy a obnova databáze**, test obnovy, WAL, GDPR a zálohy |
+| 13 | [Nasazení a provoz](docs/13-nasazeni-a-provoz.md) | Proměnné prostředí, první nasazení, proxy a TLS, denní úlohy, **zálohy a obnova databáze**, test obnovy, WAL, GDPR a zálohy |
+| 15 | [Knihovna zdrojů v aplikaci](docs/15-zdroje-v-aplikaci.md) | Veřejná knihovna `ScientificSource`: stránky, model, převod registru, aktualizace |
 | – | [Registr zdrojů](docs/zdroje.md) | Všechny citace s úrovní ověření (jediný zdroj pravdy pro knihovnu) |
 
 Datové šablony: [`data/reference/nutrients.csv`](data/reference/nutrients.csv) (katalog 52 položek:
@@ -106,7 +106,7 @@ Adresář [`backend/`](backend/) obsahuje Django 5.2 LTS projekt (`config`) s ap
   [registru](docs/zdroje.md) s úrovní důkazů L1 až L6 a stavem ověření (B, A, P, S, neověřeno),
   filtry, hledání, legenda a upozornění, že uvedený zdroj není automaticky ověřený v originále.
   Data jsou v `backend/catalog/data/sources.json`, plní je `migrate` a `manage.py load_sources`,
-  shodu s registrem hlídá test ([docs/13-zdroje-v-aplikaci.md](docs/13-zdroje-v-aplikaci.md)).
+  shodu s registrem hlídá test ([docs/15-zdroje-v-aplikaci.md](docs/15-zdroje-v-aplikaci.md)).
 
 Rozsah, oprávnění, pravidla upozornění a otevřené body popisuje
 [docs/12-ucty-a-zvirata.md](docs/12-ucty-a-zvirata.md). Webová aplikace zatím neimportuje
@@ -192,7 +192,7 @@ cd backend
 
 Příkaz je bezpečné spouštět opakovaně (podruhé nic nezmění) a při chybě v souboru nezapíše nic.
 Změny provedené v administraci se přepíšou, pokud je dané pole v souboru; jak a proč viz
-[docs/13-zdroje-v-aplikaci.md](docs/13-zdroje-v-aplikaci.md) §13.5. Shodu dokumentu a souboru ověří
+[docs/15-zdroje-v-aplikaci.md](docs/15-zdroje-v-aplikaci.md) §15.5. Shodu dokumentu a souboru ověří
 `.venv/bin/python -m pytest -q tests/backend/test_catalog_sync.py`.
 
 ### Role veterinárního lékaře

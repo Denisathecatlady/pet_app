@@ -1,6 +1,6 @@
 """Loading ``catalog/data/sources.json`` into ``ScientificSource`` (``manage.py load_sources``).
 
-The file mirrors docs/zdroje.md (docs/13-zdroje-v-aplikaci.md §13.5). Loading is an upsert by
+The file mirrors docs/zdroje.md (docs/15-zdroje-v-aplikaci.md §15.5). Loading is an upsert by
 ``citation_key``: sources in the file are created or updated, sources not in the file are never
 deleted,
 and ``verified_by`` (not part of the file) is never touched. Everything is validated

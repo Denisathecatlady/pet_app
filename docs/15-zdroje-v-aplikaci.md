@@ -1,15 +1,13 @@
-# 13. Knihovna zdrojů ve webové aplikaci
+# 15. Knihovna zdrojů ve webové aplikaci
 
 > Kapitola popisuje 🛠 implementovaný stav aplikace `catalog` v adresáři `backend/`: veřejnou
 > knihovnu odborných zdrojů (model `ScientificSource`, [07](07-django-schema.md) §7.4, obrazovka
 > *Knihovna zdrojů* v [08](08-uzivatelske-rozhrani.md) §8.3). **Jediným zdrojem pravdy je registr
 > [zdroje.md](zdroje.md).** Knihovna neobsahuje žádné nutriční, energetické ani dávkovací hodnoty
 > vlastní; nic nepočítá a nic nedoporučuje (kalkulačka je odložená, [12](12-ucty-a-zvirata.md) §12.7).
-> **Číslo 13 nese i [13-nasazeni-a-provoz.md](13-nasazeni-a-provoz.md)** (provoz a zálohy, vlastní
-> oddíly §13.x); na obě kapitoly proto odkazujeme vždy celým názvem souboru.
 > Legenda: ✅ ověřeno · 🟡 ověřit · 🛠 pracovní návrh · 🩺 posoudí vet. nutriční specialista.
 
-## 13.1 Rozsah 🛠
+## 15.1 Rozsah 🛠
 
 - model `ScientificSource` s historií změn, administrace, veřejné stránky `/zdroje/` a
   `/zdroje/<citační klíč>/`;
@@ -23,7 +21,7 @@ Oddíl 7 registru (*Zdroje, které je nutné doplnit*) **není seznam zdrojů**.
 ukazuje jako samostatný statický blok *Co zatím chybí* (text je opsaný z dokumentu a test hlídá,
 aby se s ním shodoval).
 
-## 13.2 Co uživatel vidí 🛠
+## 15.2 Co uživatel vidí 🛠
 
 Obě stránky jsou **veřejné, bez přihlášení**: jde o transparentnost důkazů, ne o osobní údaje.
 Odkaz *Knihovna zdrojů* je v hlavní navigaci pro všechny a na úvodní stránce. Stránky přijímají
@@ -69,7 +67,7 @@ a seznam blokovaných domén zůstávají v dokumentu), pravidlo registru *bez s
 databáze, S a – jen jako orientace* a krátké vysvětlení *O textech u zdrojů* (texty jsou opsané
 z interního registru, „doplnit“ a „ověřit“ jsou otevřené úkoly, odkazy na soubory projektu a věty
 v první osobě pocházejí od vývojářů). Štítek zdroje s více značkami ukazuje **nejvyšší dosaženou
-značku**; pořadí je pracovní a legenda to říká (🩺 §13.8). Zrcadlí ji štítky `VerificationLevel` a
+značku**; pořadí je pracovní a legenda to říká (🩺 §15.8). Zrcadlí ji štítky `VerificationLevel` a
 `EvidenceLevel`; test je porovnává s dokumentem. Krátké názvy stavů a úrovní hlídá nezávislá
 tabulka literálů (`test_catalog_display.py`): záměna dvou stavů nebo úrovní testy neprojde.
 
@@ -82,7 +80,7 @@ ověření, a vymaže ho u stavu *neověřeno*. Formulář ukazuje jen *zaznamen
 `rel="noopener noreferrer external"`, odkaz se vypíše jen pro adresy `http://` a `https://`
 (hlídá i omezení v databázi), texty se escapují (žádné inline skripty ani styly, CSP).
 
-## 13.3 Model `ScientificSource` a odchylky od docs/07 §7.4 🛠
+## 15.3 Model `ScientificSource` a odchylky od docs/07 §7.4 🛠
 
 | Pole | Poznámka |
 |---|---|
@@ -95,7 +93,7 @@ ověření, a vymaže ho u stavu *neověřeno*. Formulář ukazuje jen *zaznamen
 | `evidence_level` | `L1` až `L6` s českými popisy z registru |
 | `species_scope`, `life_stages` | `DOG`, `CAT`, `BOTH`, `NOT_APPLICABLE`; seznam fází `ADULT`, `GROWTH`, `REPRODUCTION`, `ALL_STAGES` (JSON) |
 | `units_and_conditions`, `edition_version` | jednotky a podmínky platnosti, vydání nebo verze |
-| `verification_level` | `B`, `A`, `P`, `S`, `NONE`; vždy **nejsilnější ze značek** (§13.4) |
+| `verification_level` | `B`, `A`, `P`, `S`, `NONE`; vždy **nejsilnější ze značek** (§15.4) |
 | `verification_markers` | **navíc:** všechny značky B, A, P, S, které registr u zdroje uvádí (JSON) |
 | `verification_note` | co přesně bylo ověřeno; poznámky z registru |
 | `last_verified_at`, `verified_by` | datum (může být prázdné) a účet; `verified_by` má `on_delete=SET_NULL` |
@@ -130,11 +128,11 @@ druh, ověření), hledání (klíč, název, autoři, DOI), životní fáze a z
 pole. Oprávnění k modelu se zatím přidělují ručně (skupina `data_curator` nemá žádná práva,
 [12](12-ucty-a-zvirata.md) §12.2).
 
-## 13.4 Jak se záznam registru převádí na pole 🛠
+## 15.4 Jak se záznam registru převádí na pole 🛠
 
 Buňka *Zdroj* v registru slučuje autory, název a údaje o vydání; převod je ruční a **nic
 neupravuje, nepřidává ani nevynechává** (test porovnává slova dokumentu a souboru v obou směrech,
-§13.6).
+§15.6).
 
 | Údaj v registru | Kam |
 |---|---|
@@ -197,11 +195,11 @@ odstavec a stránka ho u jednotek ukazuje upozorněním podle stavu zdroje.
 **Opsáno beze změny:** překlep v registru „u rostoucích dog“ (`[Hazewinkel1985]`) a větu v první
 osobě „proto je nepřebírám“ (`[SciRep2025]`) se neopravovaly; opravit je lze v dokumentu i v souboru.
 
-## 13.5 Jak knihovnu aktualizovat 🛠
+## 15.5 Jak knihovnu aktualizovat 🛠
 
 1. Upravte **[zdroje.md](zdroje.md)** (jediný zdroj pravdy): nový řádek tabulky, změna značky
    ověření, doplněný autor.
-2. Upravte stejný záznam v `backend/catalog/data/sources.json` (ručně, podle §13.4; soubor je JSON
+2. Upravte stejný záznam v `backend/catalog/data/sources.json` (ručně, podle §15.4; soubor je JSON
    s položkami `format_version` a `sources`, pořadí záznamů je pořadí v dokumentu).
 3. Spusťte `.venv/bin/python -m pytest -q tests/backend/test_catalog_sync.py`. Test **říká, co se
    v dokumentu a v souboru liší**: množina klíčů, rok, značky a stav ověření, úroveň důkazů, URL a DOI,
@@ -220,7 +218,7 @@ patří do dokumentu a souboru. Na čisté instalaci načte soubor `migrate` (mi
 nezávislý zavaděč a nevolá kód aplikace; zná jen pole, která model v dané migraci má, a existující
 zdroje nepřepisuje). Test ověřuje, že příkaz po migraci nenajde žádný rozdíl.
 
-## 13.6 Testy 🛠
+## 15.6 Testy 🛠
 
 | Soubor | Co hlídá |
 |---|---|
@@ -231,7 +229,7 @@ zdroje nepřepisuje). Test ověřuje, že příkaz po migraci nenajde žádný r
 | `test_catalog_display.py` | **nezávislá tabulka literálů** ikon, tříd a názvů stavů ověření a úrovní (záměna dvou stavů nebo úrovní ji neprojde), shoda štítku a věty pod ním na detailu, upozornění podle stavu |
 | `test_catalog_admin_gdpr.py` | administrace (kurátor bez práv k účtům nečte cizí e-maily, `verified_by` nastavuje administrace), export osobních údajů (oddíl `catalog`), smazání účtu ověřovatele (stránkou i v administraci) |
 
-## 13.7 Co zatím není 🛠
+## 15.7 Co zatím není 🛠
 
 - vazby `ScientificSource` z dalších modelů (hodnoty, požadavky, koeficienty, pravidla, zdravotní
   stavy): docs/08 §8.3 chce u zdroje i *kde se zdroj v aplikaci používá*, což přijde s těmito
@@ -241,15 +239,15 @@ zdroje nepřepisuje). Test ověřuje, že příkaz po migraci nenajde žádný r
 - formulář pro kurátora mimo administraci, skupinová práva pro `data_curator`;
 - generování `sources.json` z dokumentu (převod je ruční a rozhoduje o něm člověk, hlídá ho test).
 
-## 13.8 Body pro specialistu 🩺 a pro právníka
+## 15.8 Body pro specialistu 🩺 a pro právníka
 
 Specialista:
 
-1. Pořadí značek ověření pro stav zdroje s více značkami (P > A > S > B, §13.4). Hodnoty z
+1. Pořadí značek ověření pro stav zdroje s více značkami (P > A > S > B, §15.4). Hodnoty z
    `[FEDIAF2025]` jsou ✅ S ve všech dokumentech i v kódu `nutricalc`, dokud je specialista neověří
    v originále.
 2. Zdroje bez značky (`[SciRep2025]` a oddíl 6) jsou `NONE`. Mají dostat značku?
-3. Zařazení druhu u `[Wikivet]`, `[PNA-RER]`, `[MDPI2025]` a životních fází odvozených z názvů (§13.4).
+3. Zařazení druhu u `[Wikivet]`, `[PNA-RER]`, `[MDPI2025]` a životních fází odvozených z názvů (§15.4).
 4. Texty pruhu a legendy (srozumitelnost pro majitele), krátké názvy úrovní (*doporučení instituce*,
    *kazuistika*…) a názvy stavů ověření.
 5. Zda mají poznámky u zdrojů obsahovat čísla (energetický základ FEDIAF, kategorie aktivity,

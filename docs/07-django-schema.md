@@ -7,7 +7,7 @@
 > `Animal`, `BodyMeasurement`, `HealthCondition`, `AnimalHealthCondition`, `AnimalShare` s historií
 > změn, **bez nutričních vazeb**), viz [12](12-ucty-a-zvirata.md), a `catalog` s modelem
 > `ScientificSource` (veřejná knihovna zdrojů naplněná z [zdroje.md](zdroje.md), viz
-> [13](13-zdroje-v-aplikaci.md); odchylky od §7.4 jsou v [13](13-zdroje-v-aplikaci.md) §13.3).
+> [15](15-zdroje-v-aplikaci.md); odchylky od §7.4 jsou v [15](15-zdroje-v-aplikaci.md) §15.3).
 > `standards`, `recipes`, `analyses`, zbytek `catalog` (`DataVersion`, `Nutrient`, `Ingredient`),
 > REST API a HTMX zatím nejsou.
 
@@ -354,7 +354,7 @@ class AnalysisNutrientResult(models.Model):    # denormalizace pro dotazy a graf
 > **Stav `ScientificSource` 🛠:** implementováno jako v ukázce s těmito rozdíly: `year` smí být
 > prázdný, `species` se jmenuje `species_scope`, `life_stages` je JSON seznam, `verified_by` má
 > `SET_NULL` (smazání účtu), přibyla pole `publication_details`, `type_note`, `verification_markers`,
-> `verification_note` a `key_findings` a omezení stavu ověření ([13](13-zdroje-v-aplikaci.md) §13.3).
+> `verification_note` a `key_findings` a omezení stavu ověření ([15](15-zdroje-v-aplikaci.md) §15.3).
 > Společný `TimeStamped` (`created_by`) se zatím nepoužívá, o změnách vypovídá historie.
 
 ## 7.5 Vazby a jejich důvod

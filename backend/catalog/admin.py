@@ -75,7 +75,7 @@ class ScientificSourceAdmin(SimpleHistoryAdmin):
     """Library of sources. Changes made here are overwritten by the next
     ``manage.py load_sources`` for every field present in ``catalog/data/sources.json``;
     a lasting change belongs to docs/zdroje.md and the JSON file
-    (docs/13-zdroje-v-aplikaci.md §13.5)."""
+    (docs/15-zdroje-v-aplikaci.md §15.5)."""
 
     form = ScientificSourceForm
     list_display = (
@@ -92,7 +92,7 @@ class ScientificSourceAdmin(SimpleHistoryAdmin):
     search_fields = ("citation_key", "title", "authors_or_org", "doi")
     # No raw-id or select widget for verified_by: it would show the e-mail address of any
     # account, whatever the staff member may see in the user admin (data minimisation,
-    # docs/13-zdroje-v-aplikaci.md §13.3). The admin sets the field itself.
+    # docs/15-zdroje-v-aplikaci.md §15.3). The admin sets the field itself.
     readonly_fields = ("verified_by_info", "created_at", "updated_at")
     fieldsets = (
         (None, {"fields": ("citation_key", "title", "authors_or_org", "year")}),

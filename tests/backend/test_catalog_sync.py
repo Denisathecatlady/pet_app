@@ -1,5 +1,5 @@
 """docs/zdroje.md is the single source of truth: the data file, the model choices and the
-public page must say the same as the document (docs/13-zdroje-v-aplikaci.md §13.5).
+public page must say the same as the document (docs/15-zdroje-v-aplikaci.md §15.5).
 
 The document is parsed here (the application never reads docs/ at run time). When this
 file fails after somebody edited the document, edit ``backend/catalog/data/sources.json``
@@ -339,7 +339,7 @@ def test_species_and_life_stages_of_standards(row):
 # Species and life stages of sections 2 to 6. The registry has no column for them there, so
 # they were derived from the title (or, where the title is silent, from the registry text) by
 # the developer. Reviewed once, entry by entry; 🩺 to be confirmed by the veterinary nutrition
-# specialist (docs/13-zdroje-v-aplikaci.md §13.4 and §13.8, point 3). A change in the data file
+# specialist (docs/15-zdroje-v-aplikaci.md §15.4 and §13.8, point 3). A change in the data file
 # must be a conscious edit of this table.
 DERIVED_SCOPE = {
     "Bermingham2014": ("DOG", ["ADULT"]),  # "adult dogs"

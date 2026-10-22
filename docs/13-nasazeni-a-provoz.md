@@ -4,8 +4,6 @@
 > reverzní proxy, denní úlohy a hlavně **zálohování a obnovu databáze** podle [07](07-django-schema.md)
 > §7.7 (původní požadavek „bezpečné zálohování a ochrana dat“). Nástroje jsou v adresáři
 > [`deploy/`](../deploy/), jejich testy v `tests/ops/`.
-> **Číslo 13 nese i [13-zdroje-v-aplikaci.md](13-zdroje-v-aplikaci.md)**; na tuto kapitolu proto
-> odkazujeme vždy celým názvem souboru.
 > Legenda: ✅ ověřeno · 🟡 ověřit · 🛠 pracovní návrh · 🩺 posoudí vet. nutriční specialista.
 > V této kapitole znamená **🟡 netestováno**, že postup vychází z dokumentace produktu a nebyl zde
 > spuštěn, protože potřebuje server, který vývojové prostředí nemá (§13.12).
@@ -551,7 +549,7 @@ Debian/Ubuntu.
   test obnovy zapíše `OK` a `FAIL` (poškozená záloha, rozdílné počty, rozdílný seznam tabulek,
   chybějící tabulky, žádná záloha) a vždy zahodí pomocnou databázi; **žádný program nedostane heslo
   ani tajemství v argumentech** (zachyceno obalem na `pg_dump`, `psql`, `pg_restore`, `gpg`).
-- `shellcheck` 0.10.0 bez nálezů (test se přeskočí, když není nainstalován).
+- `shellcheck` bez nálezů (ověřeno verzí 0.11.0 z balíčku `shellcheck-py`; test se přeskočí, když shellcheck není nainstalován).
 - Ručně: záloha při souběžném zápisu do databáze (počty v manifestu se po obnově shodovaly přesně);
   záloha rolí jen ke čtení (`pg_read_all_data`) a test obnovy rolí s `CREATEDB`, role bez
   `CREATEDB` test obnovy správně odmítne; první nasazení s `config.settings.prod` na pokusné

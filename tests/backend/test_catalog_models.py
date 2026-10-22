@@ -1,5 +1,5 @@
 """ScientificSource: validation, database constraints, ordering, history and deletion of the
-verifier's account (docs/07 §7.4, docs/13-zdroje-v-aplikaci.md)."""
+verifier's account (docs/07 §7.4, docs/15-zdroje-v-aplikaci.md)."""
 
 from datetime import date, timedelta
 

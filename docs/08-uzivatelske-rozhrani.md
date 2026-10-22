@@ -58,12 +58,12 @@ Dashboard zvířat
 > musí stanovit 🩺 specialista) a *Návrh úpravy energie* (patří ke kalkulačce, docs/05 §5.6).
 
 > **Stav obrazovky Knihovna zdrojů 🛠:** implementováno jako veřejný seznam a detail
-> ([13](13-zdroje-v-aplikaci.md) §13.2): filtry (úroveň odbornosti zdroje, druh, typ, stav ověření), hledání
+> ([15](15-zdroje-v-aplikaci.md) §15.2): filtry (úroveň odbornosti zdroje, druh, typ, stav ověření), hledání
 > v klíči, názvu a autorech, 25 zdrojů na stranu, detail se všemi poli, legenda úrovní L1 až L6 a
 > stavů ověření B, A, P, S a výrazný pruh *Zdroj v knihovně není automaticky ověřený v originále*.
 > Stav ověření je vždy ikona + text + barva (§8.1). Blok *Co zatím chybí* opisuje oddíl 7 registru.
 > **Není** implementováno: sloupec *kde se zdroj v aplikaci používá* (zdroje zatím nejsou k ničemu
-> v aplikaci připojené, [13](13-zdroje-v-aplikaci.md) §13.7).
+> v aplikaci připojené, [15](15-zdroje-v-aplikaci.md) §15.7).
 
 ## 8.4 Vizuální jazyk stavů
 
