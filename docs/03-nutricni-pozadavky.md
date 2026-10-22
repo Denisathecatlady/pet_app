@@ -112,14 +112,20 @@ zákonné maximum (seznam maxim se převezme z originálu) · (–) = standard o
 
 | Hodnota | Kontext | Zdroj | Stav |
 |---|---|---|---|
-| Referenční energie 95 a 110 kcal ME/kg BW^0,75 | Psi, dospělí | `[FEDIAF2025]` | ✅ P |
-| Referenční energie 75 a 100 kcal ME/kg BW^0,67 | Kočky, dospělé | `[FEDIAF2025]` | ✅ P |
-| Ca:P max. 2:1 (nutriční maximum) | Pes dospělý | `[FEDIAF2025]` tab. III-3b | ✅ P |
+| Referenční energie 95 a 110 kcal ME/kg BW^0,75 | Psi, dospělí | `[FEDIAF2025]` | ✅ S |
+| Referenční energie 75 a 100 kcal ME/kg BW^0,67 | Kočky, dospělé | `[FEDIAF2025]` | ✅ S |
+| Ca:P max. 2:1 (nutriční maximum) | Pes dospělý | `[FEDIAF2025]` tab. III-3b | ✅ S |
 | Ca min. 1,25 g / 1 000 kcal ME | Pes dospělý, 110 kcal/kg^0,75 | `[FEDIAF2025]` přes `[SciRep2025]` | ✅ S |
 | P min. 1,00 g / 1 000 kcal ME | Pes dospělý, 110 kcal/kg^0,75 | `[FEDIAF2025]` přes `[SciRep2025]` | ✅ S |
 | Ca max. 1,8 % sušiny | Růst psů velkých plemen (≥ 70 lb) | `[AAFCO2014]` | ✅ S |
 | Ca max. 2,5 % sušiny | Ostatní krmiva pro psy | `[AAFCO2014]` | ✅ S |
 | Ca:P max. 1,6:1 / 1,8:1 | Pes časný / pozdní růst | FEDIAF 2016 (sekundárně) | 🟡 |
+
+> **Oprava značky 🩺:** hodnoty `[FEDIAF2025]` (95 a 110, 75 a 100 kcal ME, Ca:P 2:1) byly dříve
+> označeny ✅ P (ověřeno přímo v primárním zdroji). To bylo silnější, než odpovídá skutečnosti:
+> zjištěny byly z výpisů vyhledávače z textu PDF, originál nebyl otevřen. Značka je proto **✅ S**
+> a sedí s registrem [zdroje.md](zdroje.md). Do databáze standardů se tyto hodnoty smějí dostat
+> až po přepisu z originálu (§3.5).
 
 **Kontrola konzistence (příklad):** 1,25 g Ca/1 000 kcal ÷ 2,5 = 0,50 g Ca/100 g sušiny. Převod
 faktorem 2,5 (při 4 000 kcal/kg sušiny) je ve FEDIAF uveden ✅ S. Takové kontroly se při importu spouští

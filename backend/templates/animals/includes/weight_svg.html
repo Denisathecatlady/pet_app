@@ -1,0 +1,32 @@
+{% load l10n %}{% localize off %}<svg class="chart__svg chart__svg--{{ variant }}" viewBox="0 0 {{ chart.frame.width }} {{ chart.frame.height }}" role="img" aria-labelledby="weight-svg-title-{{ variant }}" aria-describedby="weight-svg-desc-{{ variant }}" focusable="false">
+  <title id="weight-svg-title-{{ variant }}">Graf hmotnosti zvířete {{ animal.name }} za {{ period.phrase }}</title>
+  <desc id="weight-svg-desc-{{ variant }}">{{ description }}</desc>
+  <text class="chart__axis-title" transform="translate({{ chart.frame.title_x }} {{ chart.frame.center_y }}) rotate(-90)" text-anchor="middle">hmotnost (kg)</text>
+  {% for tick in chart.y_ticks %}
+    <line class="chart__grid" x1="{{ chart.frame.left }}" y1="{{ tick.y }}" x2="{{ chart.frame.right }}" y2="{{ tick.y }}"/>
+    <text class="chart__tick" x="{{ chart.frame.y_label_x }}" y="{{ tick.y }}" dy="0.35em" text-anchor="end">{{ tick.label }}</text>
+  {% endfor %}
+  {% for tick in chart.x_ticks %}
+    <line class="chart__axis" x1="{{ tick.x }}" y1="{{ chart.frame.bottom }}" x2="{{ tick.x }}" y2="{{ chart.frame.x_tick_end }}"/>
+    <text class="chart__tick" x="{{ tick.x }}" y="{{ chart.frame.x_label_y }}" text-anchor="middle">{{ tick.label }}</text>
+  {% endfor %}
+  <line class="chart__axis" x1="{{ chart.frame.left }}" y1="{{ chart.frame.top }}" x2="{{ chart.frame.left }}" y2="{{ chart.frame.bottom }}"/>
+  <line class="chart__axis" x1="{{ chart.frame.left }}" y1="{{ chart.frame.bottom }}" x2="{{ chart.frame.right }}" y2="{{ chart.frame.bottom }}"/>
+  {% if chart.target %}
+    <line class="chart__target" x1="{{ chart.frame.left }}" y1="{{ chart.target.y }}" x2="{{ chart.frame.right }}" y2="{{ chart.target.y }}"/>
+    {% for line in chart.target.label_lines %}
+      <text class="chart__label chart__label--target" x="{{ line.x }}" y="{{ line.y }}" text-anchor="{{ line.anchor }}">{{ line.text }}</text>
+    {% endfor %}
+  {% endif %}
+  <polyline class="chart__line" points="{{ chart.polyline }}"/>
+  {% for point in chart.points %}
+    {% if point.is_vet %}
+      <polygon class="chart__point chart__point--vet" points="{{ point.diamond_points }}"><title>{{ point.description }}</title></polygon>
+    {% else %}
+      <circle class="chart__point chart__point--owner" cx="{{ point.x }}" cy="{{ point.y }}" r="5"><title>{{ point.description }}</title></circle>
+    {% endif %}
+  {% endfor %}
+  {% if chart.end_label %}
+    <text class="chart__label" x="{{ chart.end_label.x }}" y="{{ chart.end_label.y }}" text-anchor="{{ chart.end_label.anchor }}">{{ chart.end_label.text }}</text>
+  {% endif %}
+</svg>{% endlocalize %}

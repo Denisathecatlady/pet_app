@@ -179,9 +179,7 @@ def export_animals(user: Any) -> dict[str, Any]:
     )
     animal_ids = [animal.pk for animal in animals]
     order = ("history_date", "history_id")
-    animal_history = _history_by_object(
-        Animal.history.filter(id__in=animal_ids).order_by(*order)
-    )
+    animal_history = _history_by_object(Animal.history.filter(id__in=animal_ids).order_by(*order))
     measurement_history = _history_by_object(
         BodyMeasurement.history.filter(animal_id__in=animal_ids).order_by(*order)
     )

@@ -6,6 +6,7 @@ monotone in date, ticks covering the data, deterministic output).
 """
 
 import re
+import tracemalloc
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import NamedTuple
@@ -17,19 +18,24 @@ from hypothesis import strategies as st
 from animals import charts
 from animals.charts import (
     BCS_FRAME,
+    BCS_FRAME_COMPACT,
     DEFAULT_PERIOD,
     PERIODS,
     WEIGHT_FRAME,
+    WEIGHT_FRAME_COMPACT,
+    build_bcs_chart,
     build_sparkline,
     build_tracking,
     build_weight_chart,
     change_sentence,
     date_ticks,
     nice_ticks,
+    outside_period_sentence,
     parse_period,
     select_period,
     summarize_weight,
     weight_axis,
+    widen_to_min_span,
 )
 
 D = Decimal
@@ -567,14 +573,22 @@ def test_property_all_coordinates_are_inside_the_plot_area(readings, period, tar
     tracking = build_tracking(
         readings, period, TODAY, target_weight_kg=target, target_status=status
     )
-    for chart in (tracking.weight, tracking.bcs):
+    layouts = (tracking.weight, tracking.bcs, tracking.weight_compact, tracking.bcs_compact)
+    for chart in layouts:
         assert all(inside(chart.frame, p.x, p.y) for p in chart.points)
         assert all(chart.frame.top <= t.y <= chart.frame.bottom for t in chart.y_ticks)
         assert all(chart.frame.left <= t.x <= chart.frame.right for t in chart.x_ticks)
-    if tracking.weight.target is not None:
-        target_line = tracking.weight.target
-        assert tracking.weight.frame.top <= target_line.y <= tracking.weight.frame.bottom
+        assert len(chart.x_ticks) <= chart.frame.max_x_ticks
+    for weight in (tracking.weight, tracking.weight_compact):
+        if weight.target is not None:
+            assert weight.frame.top <= weight.target.y <= weight.frame.bottom
+            for line in weight.target.label_lines:  # the text stays inside the picture
+                assert 0 <= line.x < weight.frame.width and 0 < line.y < weight.frame.height
+        if weight.end_label is not None:
+            assert 0 < weight.end_label.x <= weight.frame.width
     assert tracking.weight.frame is WEIGHT_FRAME and tracking.bcs.frame is BCS_FRAME
+    assert tracking.weight_compact.frame is WEIGHT_FRAME_COMPACT
+    assert tracking.bcs_compact.frame is BCS_FRAME_COMPACT
 
 
 @PROPERTY_SETTINGS
@@ -675,3 +689,227 @@ def test_property_sparkline_stays_inside_its_box(readings):
         sorted(readings, key=lambda r: r.measured_on)[-1].weight_kg
         - sorted(readings, key=lambda r: r.measured_on)[0].weight_kg
     )
+
+
+# --- Compact layout for narrow screens ---------------------------------------------------------
+
+
+def compact_weight(readings, **kwargs):
+    chosen, start, end = select_period(readings, P365, TODAY)
+    return build_weight_chart(chosen, P365, start, end, frame=WEIGHT_FRAME_COMPACT, **kwargs)
+
+
+def test_compact_frames_fit_a_phone_and_keep_a_margin_for_the_labels():
+    for frame in (WEIGHT_FRAME_COMPACT, BCS_FRAME_COMPACT):
+        assert frame.compact and frame.width == 360 and frame.max_x_ticks == 3
+        assert frame.width - frame.right >= 72  # the value of the last point, the band label
+        assert frame.left >= 56  # the y tick labels and the rotated axis title
+    for frame in (WEIGHT_FRAME, BCS_FRAME):
+        assert not frame.compact and frame.width == 640 and frame.max_x_ticks == charts.MAX_X_TICKS
+
+
+def test_compact_chart_has_the_same_points_and_summary_as_the_wide_one():
+    readings = [days_ago(300, "23"), days_ago(120, "21.4", assessed_by="VET"), days_ago(2, "19.4")]
+    tracking = build_tracking(
+        readings, P365, TODAY, target_weight_kg=D("19"), target_status="UNVERIFIED"
+    )
+
+    wide, compact = tracking.weight, tracking.weight_compact
+    assert [(p.measured_on, p.value, p.shape) for p in wide.points] == [
+        (p.measured_on, p.value, p.shape) for p in compact.points
+    ]
+    assert wide.summary == compact.summary and wide.start == compact.start
+    assert wide.target.name == compact.target.name
+
+
+def test_compact_chart_has_at_most_three_date_ticks_at_every_scale():
+    for days in (1, 6, 29, 89, 364, 1000, 20000):
+        ticks = date_ticks(TODAY - timedelta(days=days), TODAY, WEIGHT_FRAME_COMPACT.max_x_ticks)
+        assert len(ticks) <= 3, days
+    assert len(date_ticks(TODAY - timedelta(days=89), TODAY)) == 6  # the wide chart: up to 7
+
+
+def test_compact_end_label_is_right_aligned_at_the_edge():
+    chart = compact_weight([days_ago(40, "21"), days_ago(0, "120")])
+    label = chart.end_label
+    assert label.anchor == "end" and label.x == chart.frame.width - charts.COMPACT_LABEL_MARGIN
+    assert label.text == f"120{NBSP}kg"
+    assert chart.points[-1].x < label.x
+
+
+def test_compact_target_label_is_two_lines_and_never_wider_than_the_plot():
+    chart = compact_weight(
+        [days_ago(40, "21"), days_ago(0, "20")],
+        target_weight_kg=D("19"),
+        target_status="VET_CONFIRMED",
+    )
+    first, second = chart.target.label_lines
+    assert first.text == "cílová hmotnost (potvrzeno veterinářem)"
+    assert second.text == f"19{NBSP}kg" and second.y > first.y
+    assert chart.target.label.text == f"{first.text} {second.text}"  # the full text stays
+    wide = weight_chart(
+        [days_ago(40, "21"), days_ago(0, "20")],
+        target_weight_kg=D("19"),
+        target_status="VET_CONFIRMED",
+    )
+    assert len(wide.target.label_lines) == 1 and wide.target.label_lines[0] == wide.target.label
+
+
+def test_compact_band_label_is_two_lines_in_the_margin():
+    chosen, start, end = select_period([days_ago(9, bcs=5), days_ago(2, bcs=6)], P90, TODAY)
+    wide = build_bcs_chart(chosen, P90, start, end)
+    compact = build_bcs_chart(chosen, P90, start, end, frame=BCS_FRAME_COMPACT)
+
+    assert [line.text for line in wide.band.label_lines] == ["pásmo 4–5 z 9"]
+    assert [line.text for line in compact.band.label_lines] == ["pásmo", "4–5 z 9"]
+    assert compact.band.label.text == "pásmo 4–5 z 9"
+    assert all(line.x > compact.frame.right for line in compact.band.label_lines)
+    top, bottom = compact.band.label_lines
+    assert compact.band.top < top.y < bottom.y < compact.band.bottom + 20
+
+
+# --- A measurement outside the period is refused -------------------------------------------------
+
+
+def test_charts_refuse_a_measurement_outside_the_range_instead_of_drawing_it_outside_the_plot():
+    start, end = TODAY - timedelta(days=29), TODAY
+    inside_range = days_ago(5, "20", bcs=5)
+    for outside in (days_ago(40, "21", bcs=5), Reading(TODAY + timedelta(days=1), D(20), 5)):
+        with pytest.raises(ValueError, match="outside"):
+            build_weight_chart([outside, inside_range], P30, start, end)
+        with pytest.raises(ValueError, match="outside"):
+            build_bcs_chart([outside, inside_range], P30, start, end)
+    assert len(build_weight_chart([inside_range], P30, start, end).points) == 1
+    with pytest.raises(ValueError, match="start < end"):
+        build_bcs_chart([], P30, end, end)
+
+
+# --- Date ticks cost the same for a short and a very long range ----------------------------------
+
+
+def reference_date_ticks(start: date, end: date, max_ticks: int) -> list[date]:
+    """The straightforward algorithm: build the whole list for every candidate step."""
+    steps = [("day", s) for s in (1, 2, 7, 14)] + [
+        ("month", s) for s in (1, 2, 3, 6, 12, 24, 60, 120, 240, 600, 1200, 12000)
+    ]
+    ticks: list[date] = []
+    for unit, step in steps:
+        if unit == "day":
+            first = start.toordinal() + -(start.toordinal() - 1) % step
+            ticks = [date.fromordinal(n) for n in range(first, end.toordinal() + 1, step)]
+        else:
+            index = start.year * 12 + start.month - 1 + (1 if start.day > 1 else 0)
+            index += -index % step
+            ticks = []
+            while index // 12 <= 9999 and date(index // 12, index % 12 + 1, 1) <= end:
+                ticks.append(date(index // 12, index % 12 + 1, 1))
+                index += step
+        if len(ticks) <= max_ticks:
+            break
+    return ticks
+
+
+@given(
+    st.dates(date(1, 1, 1), date(2100, 1, 1)),
+    st.integers(0, 800_000),
+    st.sampled_from([3, 4, 7]),
+)
+@settings(max_examples=300, deadline=None)
+def test_property_date_ticks_equal_the_straightforward_algorithm(start, length, max_ticks):
+    end = min(start + timedelta(days=length), date(9999, 12, 31))
+    assert [t for t, _ in date_ticks(start, end, max_ticks)] == reference_date_ticks(
+        start, end, max_ticks
+    )
+
+
+def test_a_range_of_two_thousand_years_is_not_materialised_day_by_day():
+    """An animal without a birth date accepted a measurement dated year 1: the "all" period
+    then built about 1.2 million dates, 45 MB and half a second, on every request."""
+    tracemalloc.start()
+    try:
+        ticks = date_ticks(date(1, 1, 2), TODAY)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert [t.year for t, _ in ticks] == [1000, 2000]
+    assert peak < 200_000  # a few dozen objects, not millions
+
+
+# --- Descriptions stay short for a long history ---------------------------------------------------
+
+
+def test_bcs_description_lists_few_scores_but_summarises_many():
+    few = [days_ago(d, "20", bcs=5) for d in range(11, 0, -1)]  # 11 scores
+    many = [days_ago(d, "20", bcs=1 + d % 9) for d in range(300, 0, -1)]  # one a day
+    short = charts.describe_bcs_chart(build_tracking(few, P90, TODAY).bcs)
+    long = charts.describe_bcs_chart(build_tracking(many, PALL, TODAY).bcs)
+
+    assert "Zapsaná skóre:" in short and short.count("/9") == 11
+    assert "Zapsaná skóre:" not in long
+    assert "300 hodnocení" in long and "nejnižší zapsané skóre 1/9, nejvyšší 9/9" in long
+    assert "První skóre" in long and "poslední" in long
+    assert len(long) < 600, len(long)  # 41 436 characters for 3000 scores before
+    assert "Stejná data jsou v tabulce pod grafem." in long
+
+
+def test_bcs_description_threshold_is_the_documented_one():
+    scores = [days_ago(d, "20", bcs=5) for d in range(charts.MAX_LISTED_SCORES + 1, 0, -1)]
+    limit = scores[1:]  # exactly MAX_LISTED_SCORES scores: still listed one by one
+    assert "Zapsaná skóre:" in charts.describe_bcs_chart(build_tracking(limit, P90, TODAY).bcs)
+    assert "Zapsaná skóre:" not in charts.describe_bcs_chart(build_tracking(scores, P90, TODAY).bcs)
+
+
+def test_weight_description_says_the_line_joins_recorded_measurements_only():
+    two = build_tracking([days_ago(9), days_ago(0)], P90, TODAY).weight
+    one = build_tracking([days_ago(1)], P90, TODAY).weight
+
+    assert (
+        charts.GAP_SENTENCE == "Čára spojuje zapsaná měření; mezi nimi nejsou zapsaná žádná data."
+    )
+    assert charts.GAP_SENTENCE in charts.describe_weight_chart(two)
+    assert charts.GAP_SENTENCE not in charts.describe_weight_chart(one)  # no line at all
+
+
+@pytest.mark.parametrize(
+    ("count", "sentence"),
+    [
+        (0, None),
+        (-1, None),
+        (1, "Mimo zobrazené období je další 1 měření"),
+        (2, "Mimo zobrazené období jsou další 2 měření"),
+        (3, "Mimo zobrazené období jsou další 3 měření"),
+        (4, "Mimo zobrazené období jsou další 4 měření"),
+        (5, "Mimo zobrazené období je dalších 5 měření"),
+        (21, "Mimo zobrazené období je dalších 21 měření"),
+    ],
+)
+def test_outside_period_sentence_declines_the_czech_count(count, sentence):
+    assert outside_period_sentence(count) == sentence
+
+
+# --- The sparkline uses the same minimum span as the weight axis ----------------------------------
+
+
+def test_widen_to_min_span_follows_the_rule_of_the_axis():
+    assert widen_to_min_span(D("20"), D("20")) == (D("19.5"), D("20.5"))  # 1 kg
+    low, high = widen_to_min_span(D("100"), D("100.5"))  # 5 % of 100.5 = 5.025 kg
+    assert high - low == D("5.025") and (low + high) / 2 == D("100.25")
+    assert widen_to_min_span(D("10"), D("14")) == (D("10"), D("14"))  # wide enough: unchanged
+    assert weight_axis([D("20"), D("20.05")]) == weight_axis([D("19.9"), D("20.15")])
+
+
+def test_a_difference_of_grams_is_not_magnified_on_the_card():
+    """20.000 -> 20.050 kg drew a full-height slope (28 of 36 px); the main chart draws about
+    2 % of its height for the same data."""
+    spark = build_sparkline([days_ago(10, "20.000"), days_ago(0, "20.050")])
+    ys = [float(pair.split(",")[1]) for pair in spark.points.split()]
+    height = charts.SPARK_HEIGHT - 2 * charts.SPARK_PADDING
+
+    assert abs(ys[0] - ys[1]) < 0.05 * height
+    big = build_sparkline([days_ago(10, "20"), days_ago(0, "22")])  # 2 kg: a visible slope
+    big_ys = [float(pair.split(",")[1]) for pair in big.points.split()]
+    assert abs(big_ys[0] - big_ys[1]) == pytest.approx(height)  # span 1.1 kg < 2 kg: full height
+    cat = build_sparkline([days_ago(10, "5.1"), days_ago(0, "4.9")])  # -0.2 kg of 1 kg
+    cat_ys = [float(pair.split(",")[1]) for pair in cat.points.split()]
+    assert abs(cat_ys[0] - cat_ys[1]) == pytest.approx(0.2 * height)

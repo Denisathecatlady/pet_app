@@ -1,4 +1,5 @@
-"""Library of scientific sources: the model ``ScientificSource`` (docs/07 §7.4, docs/13).
+"""Library of scientific sources: the model ``ScientificSource`` (docs/07 §7.4,
+docs/13-zdroje-v-aplikaci.md).
 
 The registry docs/zdroje.md is the single source of truth. ``catalog/data/sources.json``
 mirrors it and ``manage.py load_sources`` loads it into this table. The model describes
@@ -7,11 +8,13 @@ mirrors it and ``manage.py load_sources`` loads it into this table. The model de
 Every change is kept in the history (django-simple-history, docs/07 §7.6). The history
 is not deleted together with a source: it is the audit trail of reference data.
 
-Deviations from the sketch in docs/07 §7.4 are listed in docs/13 §13.3 (nullable year, the
-fields ``publication_details``, ``type_note``, ``verification_markers``, ``verification_note``
-and ``key_findings``, ``verified_by`` set to NULL when the account is deleted).
+Deviations from the sketch in docs/07 §7.4 are listed in docs/13-zdroje-v-aplikaci.md §13.3
+(nullable year, the fields ``publication_details``, ``type_note``, ``verification_markers``,
+``verification_note`` and ``key_findings``, ``verified_by`` set to NULL when the account is
+deleted).
 """
 
+import re
 from collections.abc import Iterable
 from datetime import date
 from typing import Any, Final
@@ -34,6 +37,8 @@ YEAR_DB_MAX: Final = 2100
 DOI_PATTERN: Final = r"^10\.\d{4,9}/\S+$"
 HTTP_URL_PATTERN: Final = r"^https?://\S+$"
 CITATION_KEY_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9_-]*$"
+# How the registry says that a DOI was not checked ("DOI neověřen", "DOI zatím neověřen").
+DOI_UNVERIFIED_PATTERN: Final = re.compile(r"\bDOI (?:zatím )?neověřen")
 
 
 class SourceType(models.TextChoices):
@@ -100,7 +105,7 @@ MARKERS: Final = (
 # one in this order, i.e. how far into the *content* the verification reached. A mark of a
 # secondary source (S) says more about the content than bibliography alone (B); an abstract
 # (A) more than a secondary source; the primary source (P) most. Working order of the
-# developer (docs/13 §13.4), 🩺 to be confirmed by the specialist.
+# developer (docs/13-zdroje-v-aplikaci.md §13.4), 🩺 to be confirmed by the specialist.
 VERIFICATION_STRENGTH: Final = {
     VerificationLevel.NONE: 0,
     VerificationLevel.B: 1,
@@ -366,6 +371,26 @@ class ScientificSource(models.Model):
     def doi_url(self) -> str:
         """Link to the DOI (``https://doi.org/…``), empty without a DOI."""
         return f"https://doi.org/{self.doi}" if self.doi else ""
+
+    @property
+    def type_note_extra(self) -> str:
+        """``type_note`` without the words that only repeat the type's own name.
+
+        The registry writes "Vědecká monografie (Ad Hoc Committee on Dog and Cat Nutrition)"
+        for a source of type "vědecká monografie": the list shows "Ad Hoc Committee on Dog and
+        Cat Nutrition". A note that adds nothing gives ``""``; any other note is kept as it is.
+        """
+        note, label = self.type_note.strip(), str(self.get_source_type_display())
+        if note.casefold().startswith(label.casefold()):
+            note = note[len(label) :].strip()
+            if note.startswith("(") and note.endswith(")"):
+                note = note[1:-1].strip()
+        return note
+
+    @property
+    def doi_unverified(self) -> bool:
+        """Whether the registry says in the verification note that the DOI was not verified."""
+        return bool(self.doi) and DOI_UNVERIFIED_PATTERN.search(self.verification_note) is not None
 
     @property
     def life_stage_labels(self) -> list[str]:

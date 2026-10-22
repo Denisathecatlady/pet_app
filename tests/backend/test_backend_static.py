@@ -1,6 +1,7 @@
 """Static guards of the web application (scope of this iteration, docs/12)."""
 
 import ast
+import tomllib
 
 import pytest
 
@@ -40,9 +41,11 @@ def test_animals_code_outside_charts_uses_no_float(path):
 CHARTS_DECIMAL_ONLY = (
     "nice_ticks",
     "weight_axis",
+    "widen_to_min_span",
     "date_ticks",
-    "_day_ticks",
-    "_month_ticks",
+    "_day_grid",
+    "_month_grid",
+    "outside_period_sentence",
     "select_period",
     "summarize_weight",
     "change_sentence",
@@ -64,3 +67,24 @@ def test_charts_keeps_decimals_out_of_float_code():
         segment = ast.get_source_segment(source, nodes[name])
         assert float_offenders(segment) == [], name
     assert "float(" in source  # the pixel mapping really is where floats are allowed
+
+
+def test_pyproject_fixes_the_ruff_settings_of_the_conventions():
+    """Line length 100 is a convention of the project: CI and reviewers must run the same check, so
+    the settings live in pyproject.toml instead of in everybody's command line."""
+    pyproject = tomllib.loads((BASE_DIR.parent / "pyproject.toml").read_text(encoding="utf-8"))
+    ruff = pyproject["tool"]["ruff"]
+
+    assert ruff["line-length"] == 100
+    assert {"E", "F", "W", "B", "UP", "SIM"} <= set(ruff["lint"]["select"])
+    assert "E501" not in ruff["lint"].get("ignore", [])  # no global exception to the length
+    # Only generated code and the two earlier, separately reviewed packages are exempt.
+    exempt = {
+        pattern for pattern, rules in ruff["lint"]["per-file-ignores"].items() if "E501" in rules
+    }
+    assert exempt == {
+        "**/migrations/*.py",
+        "nutricalc/**",
+        "tests/nutricalc/**",
+        "tests/refdata/**",
+    }

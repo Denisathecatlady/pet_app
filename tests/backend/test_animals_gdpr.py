@@ -267,6 +267,7 @@ def test_privacy_draft_describes_sharing(client):
 
 def test_deletion_texts_do_not_overstate_what_is_deleted(client, user, vet_user):
     """A vet's measurements stay with the owners; no page says "všechna data" are gone."""
+
     def text(url):
         return " ".join(client.get(url).content.decode().split())
 
@@ -295,6 +296,7 @@ def test_profile_explains_how_to_get_the_vet_role(client, user, vet_user, settin
     assert '<section aria-labelledby="security-title">' in content
     assert '<section aria-labelledby="data-title">' in content
     client.force_login(vet_user)
-    assert "Roli veterinárního lékaře přiděluje" not in client.get(
-        reverse("accounts:profile")
-    ).content.decode()
+    assert (
+        "Roli veterinárního lékaře přiděluje"
+        not in client.get(reverse("accounts:profile")).content.decode()
+    )

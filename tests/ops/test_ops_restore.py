@@ -276,3 +276,52 @@ def test_restore_usage_errors(workspace, golden_backup, source_db):
     unknown = restore(workspace, backup, "x", "--force", database=source_db)
     assert unknown.returncode == 2
     assert "unknown option" in unknown.stderr
+
+
+@pytest.mark.parametrize("target", ["postgres", "template0", "template1"])
+def test_restore_refuses_the_system_databases(workspace, golden_backup, source_db, target):
+    """A pristine template1 or postgres is "empty", so a restore into it would pass every other
+    check and copy the personal data into each database created later. The file here is
+    damaged on purpose: even if the rule were missing, the checksum would stop the restore
+    (status 1), so the test cannot touch the server's system databases."""
+    backup = workspace.install_copy_of(golden_backup)
+    flip_byte(backup, 100)
+
+    result = restore(workspace, backup, target, "--create", database=source_db)
+
+    assert result.returncode == 2, result.stderr
+    assert "system database" in result.stderr and target in result.stderr
+
+
+def test_restore_refuses_the_maintenance_database(workspace, golden_backup, source_db, scratch_db):
+    backup = workspace.install_copy_of(golden_backup)
+    flip_byte(backup, 100)
+    name = scratch_db(create=False)
+
+    result = workspace.run(
+        "restore_db.sh",
+        "--create",
+        str(backup),
+        database=source_db,
+        RESTORE_TARGET_DB=name,
+        POSTGRES_MAINTENANCE_DB=name,
+    )
+
+    assert result.returncode == 2
+    assert "maintenance database" in result.stderr
+
+
+def test_restore_from_a_remote_server_needs_tls(workspace, golden_backup, source_db, scratch_db):
+    backup = workspace.install_copy_of(golden_backup)
+
+    result = workspace.run(
+        "restore_db.sh",
+        "--create",
+        str(backup),
+        database=source_db,
+        RESTORE_TARGET_DB=scratch_db(create=False),
+        POSTGRES_HOST="db.example.invalid",
+    )
+
+    assert result.returncode == 2
+    assert "PGSSLMODE" in result.stderr

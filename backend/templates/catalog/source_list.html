@@ -3,8 +3,9 @@
 {% block title %}Knihovna zdrojů{% endblock %}
 {% block content %}
 <h1>Knihovna zdrojů</h1>
-<p class="lead">Odborné zdroje, na které se aplikace odvolává, s úrovní důkazů a stavem ověření.
-Knihovna je veřejná, nevyžaduje přihlášení a neobsahuje žádné osobní údaje.</p>
+<p class="lead">Registr odborných zdrojů projektu s úrovní odbornosti a stavem ověření. Zdroje
+zatím nejsou v aplikaci k ničemu použité: to, že je zdroj v seznamu, neznamená, že z něj aplikace
+vychází. Knihovna je veřejná, nevyžaduje přihlášení a neobsahuje žádné osobní údaje.</p>
 
 {% include "catalog/includes/trust_banner.html" %}
 
@@ -28,8 +29,8 @@ Knihovna je veřejná, nevyžaduje přihlášení a neobsahuje žádné osobní 
         </div>
       {% endfor %}
     </div>
-    <p class="helptext">Filtr druhu hledá přesnou hodnotu: zdroje o psech i kočkách najdete pod volbou
-    „psi i kočky“. Úrovně a stavy vysvětluje <a href="#legenda">legenda</a> pod seznamem.</p>
+    <p class="helptext">Volba „psi“ ukáže i zdroje o psech i kočkách, volba „kočky“ také. Úrovně a
+    stavy vysvětluje <a href="#legenda">legenda</a> pod seznamem.</p>
     <p class="actions">
       <button class="button" type="submit">Hledat</button>
       {% if query.is_filtered %}<a class="button button--secondary" href="{% url 'catalog:source_list' %}">Zrušit filtry</a>{% endif %}
@@ -52,7 +53,7 @@ Knihovna je veřejná, nevyžaduje přihlášení a neobsahuje žádné osobní 
             {% if source.authors_or_org %}{{ source.authors_or_org }}{% else %}<span class="hint">Autoři nejsou v registru uvedeni</span>{% endif %}{% if source.year %}, {{ source.year }}{% endif %}
           </p>
           <p class="source-item__badges">{% evidence_badge source.evidence_level %} {% verification_badge source.verification_level %}</p>
-          <p class="hint source-item__meta">Typ: {{ source.get_source_type_display }} · Druh zvířat: {{ source.get_species_scope_display }}</p>
+          <p class="hint source-item__meta">Typ: {{ source.get_source_type_display }}{% if source.type_note_extra %} ({{ source.type_note_extra }}){% endif %} · Druh zvířat: {{ source.get_species_scope_display }}</p>
         </li>
       {% endfor %}
     </ul>

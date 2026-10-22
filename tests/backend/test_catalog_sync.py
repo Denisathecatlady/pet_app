@@ -1,5 +1,5 @@
 """docs/zdroje.md is the single source of truth: the data file, the model choices and the
-public page must say the same as the document (docs/13 §13.5).
+public page must say the same as the document (docs/13-zdroje-v-aplikaci.md §13.5).
 
 The document is parsed here (the application never reads docs/ at run time). When this
 file fails after somebody edited the document, edit ``backend/catalog/data/sources.json``
@@ -10,6 +10,7 @@ import html
 import json
 import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -149,8 +150,9 @@ def expected_marks(row: DocRow) -> set[str]:
 
 
 def expected_year(row: DocRow) -> int | None:
+    """The year of the row; ``None`` when there is none or the registry doubts it ("2019?")."""
     cell = row.cells["year"] if "year" in row.cells else row.cells["source"]
-    match = re.search(r"(?<!\d)((?:19|20)\d{2})(?!\d)", cell)
+    match = re.search(r"(?<!\d)((?:19|20)\d{2})(?!\d)(?!\?)", cell)
     return int(match.group(1)) if match else None
 
 
@@ -172,6 +174,17 @@ def expected_level(row: DocRow) -> str:
 
 DOC_TEXT = DOC_PATH.read_text(encoding="utf-8")
 DOC_ROWS = parse_doc(DOC_TEXT)
+
+
+def research_date(text: str) -> date:
+    """The day of the research, from "Rešerše proběhla 18. 10. 2026." in the preamble."""
+    found = re.search(r"Rešerše proběhla (\d{1,2})\. (\d{1,2})\. (\d{4})", text)
+    assert found, "docs/zdroje.md no longer says when the research took place"
+    day, month, year = (int(part) for part in found.groups())
+    return date(year, month, day)
+
+
+RESEARCH_DATE = research_date(DOC_TEXT)
 FILE_SOURCES = {
     entry["citation_key"]: entry
     for entry in json.loads(DATA_FILE.read_text(encoding="utf-8"))["sources"]
@@ -234,6 +247,34 @@ def test_same_year(row):
     assert FILE_SOURCES[row.key]["year"] == expected_year(row)
 
 
+def test_a_doi_is_marked_unverified_exactly_where_the_registry_says_so():
+    """ "DOI zatím neověřen" (NRC2006) and "DOI neověřen" (vanBree2018) in the registry become the
+    note next to the DOI on the page; no other DOI is marked."""
+    said = {row.key for row in DOC_ROWS if re.search(r"DOI (?:zatím )?neověřen", row.cells["link"])}
+    marked = {
+        key
+        for key, entry in FILE_SOURCES.items()
+        if ScientificSource(
+            doi=entry["doi"], verification_note=entry["verification_note"]
+        ).doi_unverified
+    }
+
+    assert said == {"NRC2006", "vanBree2018"}
+    assert marked == said
+
+
+def test_a_year_with_a_question_mark_is_stored_as_unknown():
+    """ "2019?" must not become a certain 2019 on the list and the detail page; the doubt
+    stays visible in the limitations."""
+    doubtful = [row for row in DOC_ROWS if re.search(r"\d{4}\?", row.cells.get("year", ""))]
+
+    assert [row.key for row in doubtful] == ["PuppyIntake2019"]
+    for row in doubtful:
+        entry = FILE_SOURCES[row.key]
+        assert entry["year"] is None
+        assert "otazníkem" in entry["limitations"] and "2019?" in entry["limitations"]
+
+
 @pytest.mark.parametrize("row", DOC_ROWS, ids=lambda row: row.key)
 def test_same_verification_status(row):
     """The marks, the summarising level and the dates follow the document."""
@@ -241,7 +282,13 @@ def test_same_verification_status(row):
     marks = expected_marks(row)
     assert set(entry["verification_markers"]) == marks
     assert entry["verification_level"] == strongest_level(marks)
-    assert (entry["last_verified_at"] is not None) is bool(marks)
+    # Every checked source carries the day of the research (the registry names no other day).
+    expected_day = RESEARCH_DATE.isoformat() if marks else None
+    assert entry["last_verified_at"] == expected_day
+
+
+def test_the_research_date_is_the_one_in_the_document():
+    assert RESEARCH_DATE.isoformat() == "2026-10-18"
 
 
 @pytest.mark.parametrize("row", DOC_ROWS, ids=lambda row: row.key)
@@ -287,6 +334,56 @@ def test_species_and_life_stages_of_standards(row):
         if any(word in scope for word in words):
             stages.add(stage)
     assert set(entry["life_stages"]) == stages
+
+
+# Species and life stages of sections 2 to 6. The registry has no column for them there, so
+# they were derived from the title (or, where the title is silent, from the registry text) by
+# the developer. Reviewed once, entry by entry; 🩺 to be confirmed by the veterinary nutrition
+# specialist (docs/13-zdroje-v-aplikaci.md §13.4 and §13.8, point 3). A change in the data file
+# must be a conscious edit of this table.
+DERIVED_SCOPE = {
+    "Bermingham2014": ("DOG", ["ADULT"]),  # "adult dogs"
+    "Calvez2019": ("BOTH", []),  # "canine and feline foods"
+    "Laflamme1997d": ("DOG", []),  # "for dogs"
+    "Laflamme1997c": ("CAT", []),  # "for cats"
+    "Wichert2009": ("CAT", ["ADULT", "REPRODUCTION"]),  # "cats", maintenance, gestation, lactation
+    "YorkshireGrowth2017": ("DOG", ["GROWTH"]),  # "growth in the Yorkshire terrier"
+    "NorfolkGrowth2021": ("DOG", ["GROWTH"]),  # "growth in the Norfolk Terrier"
+    "PuppyIntake2019": ("DOG", ["GROWTH"]),  # "growing dogs"
+    "MDPI2025": ("DOG", []),  # title silent; the registry takes the dog categories only
+    "Wikivet": ("BOTH", []),  # title silent; general secondary literature
+    "PNA-RER": ("BOTH", []),  # title silent; general secondary literature
+    "Dillitzer2011": ("DOG", ["ADULT"]),  # "adult dogs"
+    "Stockman2013": ("DOG", ["ADULT"]),  # "maintenance diets for dogs"
+    "Wilson2019": ("CAT", ["ADULT"]),  # "maintenance diets for cats"
+    "SciRep2025": ("DOG", ["ADULT"]),  # "raw dog foods"; the registry says "dospělý pes"
+    "Hamper2017": ("CAT", ["GROWTH"]),  # "feline growth"
+    "Freeman2013": ("BOTH", []),  # "dogs and cats"
+    "Davies2019": ("BOTH", []),  # "dogs and cats"
+    "vanBree2018": ("BOTH", []),  # "cats and dogs"
+    "Broome2015": ("DOG", []),  # "in dogs"
+    "Kohler2012": ("DOG", []),  # "in dogs"
+    "Gianella2009": ("DOG", []),  # "102 dogs"
+    "Polizopoulou2005": ("CAT", []),  # "in the cat"
+    "Markovich2014": ("CAT", []),  # "for cats"
+    "Niza2003": ("CAT", []),  # "Feline"
+    "Pion1987": ("CAT", []),  # "in cats"
+    "How1994": ("BOTH", []),  # "cat and dog"
+    "Morris2002": ("CAT", []),  # "of cats"
+    "Hazewinkel1985": ("DOG", ["GROWTH"]),  # "growing Great Danes"
+    "USDA-FDC": ("NOT_APPLICABLE", []),
+    "CIQUAL": ("NOT_APPLICABLE", []),
+    "NutriDB-CZ": ("NOT_APPLICABLE", []),
+}
+
+
+def test_species_and_life_stages_of_sections_2_to_6_are_the_reviewed_ones():
+    later = {row.key for row in DOC_ROWS if row.section >= 2}
+    assert set(DERIVED_SCOPE) == later
+
+    for key, (species, stages) in DERIVED_SCOPE.items():
+        entry = FILE_SOURCES[key]
+        assert (entry["species_scope"], entry["life_stages"]) == (species, stages), key
 
 
 def test_food_databases_have_no_species():
@@ -362,8 +459,14 @@ def test_every_word_of_the_document_is_in_the_data_file_and_the_other_way_round(
     in_file = file_tokens(entry, row.key)
     marks = {mark.lower() for mark in MARKS}
     year = {str(entry["year"])} if entry["year"] else set()
+    # A year the registry doubts ("2019?") is not stored as the year of the source.
+    doubtful = {
+        found
+        for cell in row.cells.values()
+        for found in re.findall(r"(?<!\d)((?:19|20)\d{2})\?", cell)
+    }
 
-    missing = in_doc - in_file - marks - year
+    missing = in_doc - in_file - marks - year - doubtful
     assert not missing, f"in docs/zdroje.md but not in sources.json: {sorted(missing)}"
 
     allowed = in_doc | marks | year
@@ -466,10 +569,45 @@ def test_section_7_entries_are_not_sources():
 
 
 @pytest.mark.django_db
-def test_legend_page_repeats_how_the_research_was_done(client):
-    paragraph = re.search(r"\n(Rešerše proběhla .*?)\n\n", DOC_TEXT, flags=re.DOTALL).group(1)
+def test_legend_page_says_how_the_research_was_done_in_words_for_readers(client):
+    """The document's paragraph talks in developer terms (a network policy of the development
+    environment, blocked domains). The page keeps its facts (the day, that full texts could
+    not be downloaded, that the check went through abstracts, publisher pages and secondary
+    sources) and leaves the jargon and the domain list to the document."""
+    paragraph = plain(
+        re.search(r"\n(Rešerše proběhla .*?)\n\n", DOC_TEXT, flags=re.DOTALL).group(1)
+    )
+    assert "neumožnila stáhnout plné texty" in paragraph and "pmc.ncbi.nlm.nih.gov" in paragraph
+    assert "nad abstrakty, stránkami vydavatelů a sekundárními zdroji" in paragraph
+
     for url in (reverse("catalog:source_list"), reverse("catalog:source_detail", args=["NRC2006"])):
-        assert plain(paragraph) in page_text(client.get(url))
+        text = page_text(client.get(url))
+        assert "Rešerše proběhla 18. 10. 2026." in text
+        assert "Plné texty zdrojů se při ní nepodařilo stáhnout" in text
+        assert "nad abstrakty, stránkami vydavatelů a sekundárními zdroji" in text
+        assert "vývojového prostředí" not in text and "pmc.ncbi.nlm.nih.gov" not in text
+
+
+@pytest.mark.django_db
+def test_legend_page_repeats_the_rule_of_the_registry(client):
+    """ "Hodnoty se stavem S nebo – slouží jen jako orientace" is shown to everybody."""
+    block = re.search(r"\*\*Pravidlo pro vývoj:\*\* (.*?)\n\n", DOC_TEXT, flags=re.DOTALL).group(1)
+    rule = plain(re.sub(r"^> ?", "", block, flags=re.MULTILINE))
+    first, second = (sentence.strip() for sentence in rule.split(". ", 1))
+    assert (
+        first
+        == "Do databáze nutričních standardů ani surovin se nesmí dostat žádná hodnota bez stavu P"
+    )
+    assert second.startswith("Hodnoty se stavem S nebo – slouží jen jako orientace pro kontrolu")
+
+    text = page_text(client.get(reverse("catalog:source_list")))
+
+    assert "Pravidlo registru: do databáze nutričních standardů ani surovin" in text
+    assert first[1:] in text  # the rest of the first sentence, word for word
+    assert (
+        "Hodnoty se stavem S nebo „neověřeno“ slouží jen jako orientace pro kontrolu přepisu"
+        in text
+    )
 
 
 @pytest.mark.django_db

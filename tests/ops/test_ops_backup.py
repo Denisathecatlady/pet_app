@@ -2,8 +2,10 @@
 
 import hashlib
 import re
+import shutil
 import stat
 import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -336,3 +338,160 @@ def test_a_malformed_env_file_line_is_refused(workspace, source_db):
 
     assert result.returncode == 2
     assert "expected NAME=value" in result.stderr
+
+
+# --- The retention never deletes the backup it has just written ---------------------------------
+
+
+def fake_backups(directory: Path, stamps: list[str]) -> None:
+    for stamp in stamps:
+        (directory / f"barf-{stamp}.dump.gpg").write_bytes(b"encrypted " + stamp.encode())
+        (directory / f"barf-{stamp}.dump.gpg.sha256").write_text(f"manifest {stamp}\n")
+
+
+def test_names_that_sort_after_the_new_backup_do_not_delete_it(workspace, source_db):
+    """A clock that was set back (dead RTC, restored snapshot) leaves 30 or more names that sort
+    after a backup made now. The new backup used to be pruned at once while the script
+    logged "backup written", printed the dangling path and exited 0."""
+    ahead = [f"20301101T01{minute:02d}00Z" for minute in range(31)]
+    fake_backups(workspace.backup_dir, ahead)
+
+    result = workspace.run("backup_db.sh", database=source_db)
+
+    assert result.returncode == 0, result.stderr
+    new = Path(result.stdout.strip())
+    assert new.is_file() and new.with_name(new.name + ".sha256").is_file()
+    assert len(list(workspace.backup_dir.glob("barf-2030*.dump.gpg"))) == 31  # none deleted
+    assert "WARNING" in result.stderr and "ahead of the clock" in result.stderr
+    assert "backup written" in result.stderr and "pruned" not in result.stderr
+
+
+def test_the_script_refuses_to_delete_when_the_rule_would_prune_the_new_backup(
+    workspace, source_db
+):
+    """Thirty names within the tolerance (not "future") sort after the new backup: the rule
+    would delete it. Nothing is deleted and the exit status is 1, with a clear message."""
+    start = datetime.now(UTC) + timedelta(hours=2)
+    crowd = [(start + timedelta(minutes=k)).strftime("%Y%m%dT%H%M%SZ") for k in range(30)]
+    # An earlier backup of the same month: the new one is then not the first of its month,
+    # which would keep it through the monthly rule.
+    month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    older = [f"2026010{day}T010000Z" for day in range(1, 6)]
+    older.append(month_start.strftime("%Y%m%dT%H%M%SZ"))
+    fake_backups(workspace.backup_dir, [*older, *crowd])
+
+    result = workspace.run("backup_db.sh", database=source_db)
+
+    assert result.returncode == 1
+    assert "would delete the backup that was just written" in result.stderr
+    assert "Nothing was deleted" in result.stderr
+    backups = workspace.backups()
+    assert len(backups) == 37  # the new one, the 30 and 6 older ones: nothing was pruned
+    assert all((workspace.backup_dir / f"barf-{stamp}.dump.gpg").exists() for stamp in older)
+
+
+# --- TLS for a remote server --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("sslmode", [None, "prefer", "allow", "disable"])
+def test_a_remote_server_needs_tls(workspace, source_db, sslmode):
+    result = workspace.run(
+        "backup_db.sh",
+        database=source_db,
+        POSTGRES_HOST="db.example.invalid",
+        PGSSLMODE=sslmode,
+        PGCONNECT_TIMEOUT="5",
+    )
+
+    assert result.returncode == 2
+    assert "PGSSLMODE" in result.stderr and "db.example.invalid" in result.stderr
+    assert list(workspace.backup_dir.iterdir()) == []
+
+
+@pytest.mark.parametrize("sslmode", ["require", "verify-ca", "verify-full"])
+def test_a_remote_server_with_tls_is_not_refused_for_tls(workspace, source_db, sslmode):
+    """The TLS rule passes; the run then fails because the host does not exist (status 1)."""
+    result = workspace.run(
+        "backup_db.sh",
+        database=source_db,
+        POSTGRES_HOST="db.example.invalid",
+        PGSSLMODE=sslmode,
+        PGCONNECT_TIMEOUT="5",
+    )
+
+    assert result.returncode == 1
+    assert "PGSSLMODE" not in result.stderr
+    assert list(workspace.backup_dir.iterdir()) == []
+
+
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "::1", "/nonexistent/socket-dir"])
+def test_local_servers_need_no_tls_setting(workspace, source_db, host):
+    result = workspace.run(
+        "backup_db.sh",
+        database=source_db,
+        POSTGRES_HOST=host,
+        PGSSLMODE=None,
+        PGCONNECT_TIMEOUT="5",
+    )
+
+    assert "PGSSLMODE" not in result.stderr  # never refused for TLS (it may fail to connect)
+
+
+def test_the_tls_setting_can_come_from_the_env_file(workspace, source_db):
+    env_file = workspace.root / "ops.env"
+    env_file.write_text("PGSSLMODE=verify-full\nPGSSLROOTCERT=/nonexistent/root.crt\n")
+    env_file.chmod(0o600)
+
+    result = workspace.run(
+        "backup_db.sh",
+        database=source_db,
+        POSTGRES_HOST="db.example.invalid",
+        BARF_ENV_FILE=str(env_file),
+        PGCONNECT_TIMEOUT="5",
+    )
+
+    assert "PGSSLMODE" not in result.stderr
+
+
+# --- gpg-agent does not keep the database password ----------------------------------------------
+
+
+def test_gpg_does_not_inherit_the_database_password(workspace, source_db, tmp_path):
+    """The first gpg call starts a gpg-agent that outlives the script. Whatever gpg inherits
+    stays in /proc/<pid>/environ of that daemon, so the database password must not reach it."""
+    wrapper_dir = tmp_path / "wrap"
+    wrapper_dir.mkdir()
+    log = tmp_path / "gpg-env.log"
+    wrapper = wrapper_dir / "gpg"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        'printf \'%s|%s|%s\\n\' "${POSTGRES_PASSWORD-unset}" "${PGPASSWORD-unset}" '
+        f'"${{PGPASSFILE-unset}}" >> "{log}"\n'
+        f'exec "{shutil.which("gpg")}" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    pgpass = workspace.root / "pgpass"
+    pgpass.write_text(
+        f"*:*:*:{workspace.conn['POSTGRES_USER']}:{workspace.conn['POSTGRES_PASSWORD']}\n"
+    )
+    pgpass.chmod(0o600)
+
+    first = workspace.run(
+        "backup_db.sh", database=source_db, PATH=f"{wrapper_dir}:{workspace.path}"
+    )
+    other_dir = workspace.root / "backups-2"  # a second backup within one second would collide
+    other_dir.mkdir(mode=0o700)
+    second = workspace.run(
+        "backup_db.sh",
+        database=source_db,
+        PATH=f"{wrapper_dir}:{workspace.path}",
+        POSTGRES_PASSWORD=None,
+        PGPASSFILE=str(pgpass),
+        BACKUP_DIR=str(other_dir),
+    )
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    lines = log.read_text().splitlines()
+    assert len(lines) >= 4  # encrypt and verify, twice
+    assert set(lines) == {"unset|unset|unset"}

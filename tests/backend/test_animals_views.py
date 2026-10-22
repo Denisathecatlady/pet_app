@@ -313,6 +313,34 @@ def test_measurement_form_errors(owner_client, user, make_animal):
     assert not BodyMeasurement.objects.exists()
 
 
+def test_measurement_form_rejects_a_date_before_1900(owner_client, user, make_animal):
+    animal = make_animal(user)
+
+    response = owner_client.post(
+        reverse("animals:measurement_add", args=[animal.uuid]),
+        {"measured_on": "0001-01-02", "weight_kg": "20"},
+    )
+
+    assert response.status_code == 200
+    assert "Datum měření musí být 1. 1. 1900 nebo pozdější." in response.content.decode()
+    assert not BodyMeasurement.objects.exists()
+
+
+def test_measurement_form_describes_the_bcs_scale_without_judging_it(
+    owner_client, user, make_animal
+):
+    """The tracking page calls the band 4–5 only a guide on the scale; the form it links to
+    must not call the same scores "ideální kondice"."""
+    animal = make_animal(user)
+
+    content = owner_client.get(
+        reverse("animals:measurement_add", args=[animal.uuid])
+    ).content.decode()
+
+    assert "1 = vyhublé, 4–5 = střed škály, 9 = těžká obezita" in content
+    assert "ideální kondice" not in content and "ideální" not in content.lower()
+
+
 def test_measurement_form_shows_assessor(client, user, vet_user, shared):
     url = reverse("animals:measurement_add", args=[shared.uuid])
     client.force_login(vet_user)
@@ -628,8 +656,12 @@ def test_share_form_lists_what_the_vet_will_see(owner_client, user, make_animal)
 
 @pytest.mark.parametrize(
     ("count", "text"),
-    [(0, "0 zdravotních stavů"), (1, "1 zdravotní stav,"), (2, "2 zdravotní stavy"),
-     (5, "5 zdravotních stavů")],
+    [
+        (0, "0 zdravotních stavů"),
+        (1, "1 zdravotní stav,"),
+        (2, "2 zdravotní stavy"),
+        (5, "5 zdravotních stavů"),
+    ],
 )
 def test_delete_confirmation_uses_czech_plural(owner_client, user, make_animal, count, text):
     animal = make_animal(user)
@@ -710,12 +742,15 @@ def test_edit_form_keeps_the_stored_physiological_state(owner_client, user, make
 
 @pytest.mark.parametrize(
     "change",
-    [{"species": "CAT", "size_category": "", "target_weight_kg": "10"},
-     {"sex": "FEMALE", "physiological_state": "GESTATION"}],
+    [
+        {"species": "CAT", "size_category": "", "target_weight_kg": "10"},
+        {"sex": "FEMALE", "physiological_state": "GESTATION"},
+    ],
     ids=["species", "state"],
 )
-def test_owner_change_of_species_or_state_resets_confirmation(client, user, vet_user, make_animal,
-                                                              change):
+def test_owner_change_of_species_or_state_resets_confirmation(
+    client, user, vet_user, make_animal, change
+):
     animal = make_animal(user, target_weight_kg=Decimal("10"))
     AnimalShare.objects.create(animal=animal, vet=vet_user, granted_by=user)
     client.force_login(vet_user)
@@ -769,9 +804,7 @@ def test_attention_panel_shows_each_level_once(owner_client, user, make_animal, 
     """docs/08 §8.6 label once per level, then the reasons, so screen readers do not repeat it."""
     from animals.models import PhysiologicalState, Sex
 
-    animal = make_animal(
-        user, sex=Sex.FEMALE, physiological_state=PhysiologicalState.LACTATION
-    )
+    animal = make_animal(user, sex=Sex.FEMALE, physiological_state=PhysiologicalState.LACTATION)
     make_measurement(animal, bcs=2)
     AnimalHealthCondition.objects.create(
         animal=animal, condition=HealthCondition.objects.get(code="FOOD_ALLERGY")

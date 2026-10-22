@@ -30,3 +30,25 @@ testpaths = ["tests"]
 pythonpath = [".", "backend"]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 django_find_project = false
+
+# Code style: ruff, line length 100 (README, Testy). Run: ruff check . && ruff format --check .
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Written by makemigrations, long lines included.
+"**/migrations/*.py" = ["E501"]
+# Earlier, independently reviewed packages and their tests (nutricalc, refdata): left as they
+# were reviewed. New code follows every rule above.
+"nutricalc/**" = ["E501"]
+"tests/nutricalc/**" = ["E501", "SIM300"]
+"tests/refdata/**" = ["E501", "SIM300"]
+
+[tool.ruff.format]
+# docs/ holds Markdown with illustrative code blocks, not code to be formatted.
+exclude = ["docs/**", "tests/nutricalc/**", "tests/refdata/**"]
+

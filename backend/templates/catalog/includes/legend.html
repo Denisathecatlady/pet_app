@@ -1,10 +1,10 @@
 {% load catalog_tags %}
 <section class="legend" id="legenda" aria-labelledby="legend-title">
-  <h2 id="legend-title">Legenda: úrovně důkazů a stav ověření</h2>
+  <h2 id="legend-title">Legenda: úroveň odbornosti zdroje a stav ověření</h2>
 
-  <h3 id="legend-evidence">Úrovně důkazů</h3>
-  <p class="hint">Úroveň říká, o jaký druh zdroje jde. Neříká, že je zdroj správný ani že byl
-  ověřen: to je stav ověření níže.</p>
+  <h3 id="legend-evidence">Úroveň odbornosti zdroje</h3>
+  <p class="hint">Úroveň říká, o jaký druh zdroje jde (doporučení instituce, studie, databáze).
+  Neříká, že je zdroj správný ani že byl ověřen: to je stav ověření níže.</p>
   <dl class="legend__list" aria-labelledby="legend-evidence">
     {% for code, name, meaning in evidence %}
       <div><dt>{% evidence_badge code %}</dt><dd>{{ meaning }}.</dd></div>
@@ -12,15 +12,24 @@
   </dl>
 
   <h3 id="legend-verification">Stav ověření</h3>
-  <p>Rešerše proběhla 18. 10. 2026. Síťová politika vývojového prostředí neumožnila stáhnout
-  plné texty (domény europeanpetfood.org, aafco.org, pmc.ncbi.nlm.nih.gov byly blokované).
-  Ověření proto proběhlo přes webové vyhledávání nad abstrakty, stránkami vydavatelů
-  a sekundárními zdroji.</p>
-  <p class="hint">U zdroje může být značek víc (např. B a A). Stav ověření je pak nejsilnější
-  z nich v pořadí P, A, S, B; zdroj bez značky je neověřený.</p>
+  <p>Rešerše proběhla 18. 10. 2026. Plné texty zdrojů se při ní nepodařilo stáhnout: z prostředí,
+  ve kterém rešerše probíhala, nebyly dostupné. Ověření proto proběhlo přes webové vyhledávání
+  nad abstrakty, stránkami vydavatelů a sekundárními zdroji.</p>
+  <p class="hint">U zdroje může být značek víc (např. B a A). Štítek ukazuje nejvyšší dosaženou
+  značku; všechny značky registru jsou vypsané na stránce zdroje. Pořadí značek od nejvyšší
+  (P, A, S, B) je pracovní a potvrdí ho veterinární nutriční specialista. Zdroj bez značky je
+  neověřený.</p>
   <dl class="legend__list" aria-labelledby="legend-verification">
     {% for code, meaning in verification %}
       <div><dt>{% verification_badge code %}</dt><dd>{{ meaning }}.</dd></div>
     {% endfor %}
   </dl>
+  <p class="hint">Pravidlo registru: do databáze nutričních standardů ani surovin se nesmí dostat
+  žádná hodnota bez stavu P. Hodnoty se stavem S nebo „neověřeno“ slouží jen jako orientace
+  pro kontrolu přepisu, ne jako ověřená hodnota.</p>
+
+  <h3 id="legend-texts">O textech u zdrojů</h3>
+  <p class="hint">Texty u zdrojů jsou beze změny opsané z interního registru projektu.
+  Poznámky jako „doplnit“ nebo „ověřit“ jsou otevřené úkoly registru, ne ověřená zjištění.
+  Odkazy na soubory projektu a věty v první osobě pocházejí od vývojářů registru.</p>
 </section>

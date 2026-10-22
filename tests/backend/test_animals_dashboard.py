@@ -204,8 +204,8 @@ def test_card_links_to_the_tracking_page(logged_in_client, user, make_animal):
     content = logged_in_client.get(DASHBOARD).content.decode()
     link = reverse("animals:tracking", args=[rex.uuid])
     assert (
-        f'<a href="{link}">Hmotnost a kondice<span class="visually-hidden"> – Rex</span></a>'
-        in (content)
+        f'<a href="{link}">Sledování hmotnosti a kondice<span class="visually-hidden"> – Rex</span>'
+        "</a>" in content
     )
 
 
@@ -248,3 +248,95 @@ def test_dashboard_with_sparklines_runs_a_constant_number_of_queries(
     content = response.content.decode()
     assert content.count('class="card"') == 10
     assert len(sparkline_svgs(content)) == 10
+
+
+# --- The rows read do not grow with the history ------------------------------------------------
+
+
+def test_dashboard_loads_only_the_newest_measurements_of_each_animal(
+    user, make_animal, make_measurement
+):
+    """It used to prefetch every measurement of every animal and slice twelve of them in
+    Python; the work grew with the lifetime history of all animals."""
+    today = timezone.localdate()
+    animals = [make_animal(user, name=f"Zvíře {number}") for number in range(3)]
+    for animal in animals:
+        for days in range(60, 0, -1):
+            make_measurement(animal, measured_on=today - timedelta(days=days), bcs=5)
+
+    with CaptureQueriesContext(connection) as queries:
+        summaries = services.summarize(services.owned_animals(user))
+
+    assert len(summaries) == 3
+    for summary in summaries:
+        newest = summary.animal.newest_measurements
+        assert len(newest) == services.SPARKLINE_MEASUREMENTS == 12
+        assert [m.measured_on for m in newest] == sorted(
+            (m.measured_on for m in newest), reverse=True
+        )
+        assert summary.latest_weight.measured_on == today - timedelta(days=1)
+        assert len(summary.animal.latest_bcs_rows) == 1
+        assert summary.trend is not None and summary.trend.days == 11
+    # Five queries (animals, three kinds of measurements, conditions), whatever the history.
+    assert len(queries) == 5
+    assert sum(1 for q in queries if "ROW_NUMBER()" in q["sql"]) == 3
+
+
+def test_latest_scores_come_from_old_rows_outside_the_newest_twelve(
+    user, make_animal, make_measurement
+):
+    """The attention level needs the latest BCS and MCS however long ago they were written:
+    a score from 40 measurements ago must still count (BCS 7 = overweight)."""
+    today = timezone.localdate()
+    animal = make_animal(user)
+    make_measurement(animal, measured_on=today - timedelta(days=100), bcs=7, mcs="MILD_LOSS")
+    for days in range(60, 0, -1):
+        make_measurement(animal, measured_on=today - timedelta(days=days))  # no BCS, no MCS
+
+    (summary,) = services.summarize(services.owned_animals(user))
+
+    assert summary.latest_bcs.bcs == 7 and summary.latest_bcs.measured_on == today - timedelta(
+        days=100
+    )
+    assert summary.attention.level == services.EXPERT_REQUIRED
+    texts = " ".join(reason.text for reason in summary.attention.reasons)
+    assert "Poslední zadané BCS je 7/9" in texts
+    assert "ztráta svalové hmoty" in texts
+    assert summary.latest_weight.measured_on == today - timedelta(days=1)
+
+
+def test_summary_is_the_same_with_and_without_the_prefetch(user, make_animal, make_measurement):
+    """The detail page asks for the attention level of one animal without the prefetch (all
+    measurements are read); the dashboard reads the prefetched rows. Same answer."""
+    today = timezone.localdate()
+    animal = make_animal(user)
+    for days, bcs in [(90, 3), (50, None), (20, 6), (10, None), (3, None)]:
+        make_measurement(animal, measured_on=today - timedelta(days=days), bcs=bcs)
+    make_measurement(animal, measured_on=today - timedelta(days=3), bcs=None)  # same day: a tie
+
+    (prefetched,) = services.summarize(services.owned_animals(user))
+    plain = services.summarize([type(animal).objects.get(pk=animal.pk)])[0]
+
+    assert prefetched.attention == plain.attention
+    assert (
+        prefetched.latest_bcs == plain.latest_bcs
+        and prefetched.latest_weight == plain.latest_weight
+    )
+    assert prefetched.trend == plain.trend
+    assert prefetched.latest_bcs.bcs == 6
+
+
+def test_the_newest_measurement_of_a_day_wins_a_tie_like_the_model_ordering(
+    user, make_animal, make_measurement
+):
+    today = timezone.localdate()
+    animal = make_animal(user)
+    first = make_measurement(animal, measured_on=today - timedelta(days=2), weight_kg=Decimal("20"))
+    second = make_measurement(
+        animal, measured_on=today - timedelta(days=2), weight_kg=Decimal("21")
+    )
+
+    (summary,) = services.summarize(services.owned_animals(user))
+
+    assert summary.latest_weight == second != first
+    assert [m.pk for m in summary.animal.newest_measurements] == [second.pk, first.pk]

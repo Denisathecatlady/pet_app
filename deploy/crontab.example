@@ -1,40 +1,57 @@
-# Example crontab of the BARF Nutri server (docs/13-nasazeni-a-provoz.md).
-# Install it for the account that runs the application (crontab -e) and adjust the paths.
+# Example crontabs of the BARF Nutri server (docs/13-nasazeni-a-provoz.md, §13.7 and §13.8).
+# The file holds TWO crontabs, one per operating-system account; install each one with
+# "crontab -u ACCOUNT FILE" (or crontab -e as that account) and adjust the paths:
+#
+#   barf-backup  backup and restore test. It owns the backup directory, the encryption
+#                passphrase and the pgpass file; the account of the web application cannot
+#                read or write any of them (an attacker who gets code execution in the web
+#                process then cannot read, decrypt or delete the backups).
+#   barf         the account of the application: the daily Django jobs only.
+#
+# /opt/barf and /opt/barf/deploy belong to root and are not writable by either account.
 # Nothing secret belongs in this file: the scripts read their configuration from the files
 # below (mode 600), and cron mails the output of a job only when the job fails.
 #
-#   /etc/barf/ops.env      POSTGRES_* of a read-only backup role, BACKUP_DIR,
+#   /etc/barf/ops.env      owner barf-backup. POSTGRES_* of a read-only backup role, BACKUP_DIR,
 #                          BACKUP_PASSPHRASE_FILE (read by backup_db.sh through BARF_ENV_FILE)
-#   /etc/barf/restore.env  the same, but POSTGRES_USER is a role with CREATEDB, and
-#                          RESTORE_TEST_LOG (read by restore_test.sh)
-#   /etc/barf/app.env      the variables of .env.example (read by the daily Django jobs below)
+#   /etc/barf/restore.env  owner barf-backup. The same, but POSTGRES_USER is a role with
+#                          CREATEDB, plus RESTORE_TEST_LOG (read by restore_test.sh)
+#   /etc/barf/app.env      owner barf. The variables of .env.example (read by run_manage.sh)
 #
-# The daily Django jobs load app.env with the shell, so values that contain spaces or < > must be
-# quoted there: DJANGO_DEFAULT_FROM_EMAIL='BARF Nutri <noreply@barf.example.cz>'. A systemd
-# EnvironmentFile accepts the same quoted form.
+# app.env is PARSED by run_manage.sh, never run by a shell: NAME=value lines, a value may be
+# wrapped in one pair of quotes (DJANGO_DEFAULT_FROM_EMAIL='BARF Nutri <noreply@barf.example.cz>'),
+# nothing is expanded. A generated DJANGO_SECRET_KEY can be written as it is.
 #
 # The hours below are in the time zone set by CRON_TZ (cron implementations without CRON_TZ use
 # the server time zone). Backup file names and the protocol of the restore test are always UTC.
+
+# ===== crontab of the account barf-backup ======================================================
 
 SHELL=/bin/bash
 CRON_TZ=Europe/Prague
 MAILTO=admin@barf.example.cz
 BARF_ENV_FILE=/etc/barf/ops.env
-DJANGO_SETTINGS_MODULE=config.settings.prod
 
 # minute hour day-of-month month day-of-week  command
 
 # Daily encrypted backup, then retention: the newest 30 backups and the first backup of each of
 # the last 12 months are kept. Failure (non-zero exit) is mailed to MAILTO.
-17 2 * * * /opt/barf/deploy/backup_db.sh >>/var/log/barf/backup.log 2>&1 || echo "BARF backup FAILED, see /var/log/barf/backup.log"
+17 2 * * * /opt/barf/deploy/backup_db.sh >>/var/log/barf-backup/backup.log 2>&1 || echo "BARF backup FAILED, see /var/log/barf-backup/backup.log"
 
 # Monthly restore test of the newest backup into a scratch database (docs/07 §7.7). Runs on the
 # 3rd of the month, after the backup of that night; appends one line to RESTORE_TEST_LOG.
 # The database role needs CREATEDB. FAIL (non-zero exit) is mailed to MAILTO.
-41 4 3 * * BARF_ENV_FILE=/etc/barf/restore.env /opt/barf/deploy/restore_test.sh >>/var/log/barf/restore-test.log 2>&1 || echo "BARF restore test FAILED, see /var/log/barf/restore-test.log"
+41 4 3 * * BARF_ENV_FILE=/etc/barf/restore.env /opt/barf/deploy/restore_test.sh >>/var/log/barf-backup/restore-test.log 2>&1 || echo "BARF restore test FAILED, see /var/log/barf-backup/restore-test.log"
+
+# ===== crontab of the account barf (the application) ===========================================
+
+SHELL=/bin/bash
+CRON_TZ=Europe/Prague
+MAILTO=admin@barf.example.cz
+APP_ENV_FILE=/etc/barf/app.env
 
 # Daily: delete registrations nobody activated within 7 days (PENDING_ACCOUNT_RETENTION).
-23 3 * * * bash -c 'set -a; . /etc/barf/app.env; set +a; cd /opt/barf/backend && exec /opt/barf/.venv/bin/python manage.py purge_pending_accounts' >>/var/log/barf/jobs.log 2>&1 || echo "BARF purge_pending_accounts FAILED, see /var/log/barf/jobs.log"
+23 3 * * * /opt/barf/deploy/run_manage.sh purge_pending_accounts >>/var/log/barf/jobs.log 2>&1 || echo "BARF purge_pending_accounts FAILED, see /var/log/barf/jobs.log"
 
 # Daily: delete expired sessions from the database.
-29 3 * * * bash -c 'set -a; . /etc/barf/app.env; set +a; cd /opt/barf/backend && exec /opt/barf/.venv/bin/python manage.py clearsessions' >>/var/log/barf/jobs.log 2>&1 || echo "BARF clearsessions FAILED, see /var/log/barf/jobs.log"
+29 3 * * * /opt/barf/deploy/run_manage.sh clearsessions >>/var/log/barf/jobs.log 2>&1 || echo "BARF clearsessions FAILED, see /var/log/barf/jobs.log"

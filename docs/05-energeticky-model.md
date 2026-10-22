@@ -53,8 +53,8 @@ $$MER = k \cdot BW^{n}$$
 
 | Situace (klíč `EnergyFactor`) | `k` | Zdroj | Stav |
 |---|---|---|---|
-| Referenční hodnota tabulek, nižší potřeba | 95 | `[FEDIAF2025]` | ✅ P |
-| Referenční hodnota tabulek, běžná | 110 | `[FEDIAF2025]` | ✅ P |
+| Referenční hodnota tabulek, nižší potřeba | 95 | `[FEDIAF2025]` | ✅ S |
+| Referenční hodnota tabulek, běžná | 110 | `[FEDIAF2025]` | ✅ S |
 | Nízká aktivita | ≈ 95 | FEDIAF podle `[MDPI2025]` | ✅ S |
 | Střední aktivita | ≈ 110 | totéž | ✅ S |
 | Střední aktivita, vysoká zátěž | ≈ 125 | totéž | ✅ S |
@@ -66,9 +66,13 @@ $$MER = k \cdot BW^{n}$$
 
 | Situace | `k` | Zdroj | Stav |
 |---|---|---|---|
-| Referenční, štíhlé aktivní kočky | 100 | `[FEDIAF2025]` | ✅ P |
-| Referenční, nižší potřeba (kastrované, indoor) | 75 | `[FEDIAF2025]` | ✅ P hodnota, 🟡 přiřazení skupině |
+| Referenční, štíhlé aktivní kočky | 100 | `[FEDIAF2025]` | ✅ S |
+| Referenční, nižší potřeba (kastrované, indoor) | 75 | `[FEDIAF2025]` | ✅ S hodnota, 🟡 přiřazení skupině |
 | Kočky s nadváhou | samostatná rovnice NRC (uváděn exponent 0,4) | `[NRC2006]` | 🟡 **neověřeno, v MVP se nepoužije** |
+
+> **Oprava značky 🩺:** hodnoty 95, 110, 100 a 75 z `[FEDIAF2025]` byly dříve označeny ✅ P. Zjištěny
+> byly ale jen z výpisů vyhledávače z textu PDF (originál nebyl otevřen), proto je značka **✅ S**
+> a odpovídá registru [zdroje.md](zdroje.md). Přiřazení hodnot ke skupinám zvířat zůstává 🟡.
 
 ### Rozsah odhadu 🛠
 - **Bodový odhad:** koeficient zvolené kategorie aktivity.

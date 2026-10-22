@@ -1,0 +1,28 @@
+{% load l10n %}{% localize off %}<svg class="chart__svg chart__svg--{{ variant }}" viewBox="0 0 {{ chart.frame.width }} {{ chart.frame.height }}" role="img" aria-labelledby="bcs-svg-title-{{ variant }}" aria-describedby="bcs-svg-desc-{{ variant }}" focusable="false">
+  <title id="bcs-svg-title-{{ variant }}">Graf BCS zvířete {{ animal.name }} za {{ period.phrase }}</title>
+  <desc id="bcs-svg-desc-{{ variant }}">{{ description }}</desc>
+  <text class="chart__axis-title" transform="translate({{ chart.frame.title_x }} {{ chart.frame.center_y }}) rotate(-90)" text-anchor="middle">BCS (1–9)</text>
+  <rect class="chart__band" x="{{ chart.frame.left }}" y="{{ chart.band.top }}" width="{{ chart.frame.plot_width }}" height="{{ chart.band.height }}"/>
+  <line class="chart__band-edge" x1="{{ chart.frame.left }}" y1="{{ chart.band.top }}" x2="{{ chart.frame.right }}" y2="{{ chart.band.top }}"/>
+  <line class="chart__band-edge" x1="{{ chart.frame.left }}" y1="{{ chart.band.bottom }}" x2="{{ chart.frame.right }}" y2="{{ chart.band.bottom }}"/>
+  {% for tick in chart.y_ticks %}
+    <line class="chart__grid" x1="{{ chart.frame.left }}" y1="{{ tick.y }}" x2="{{ chart.frame.right }}" y2="{{ tick.y }}"/>
+    <text class="chart__tick" x="{{ chart.frame.y_label_x }}" y="{{ tick.y }}" dy="0.35em" text-anchor="end">{{ tick.label }}</text>
+  {% endfor %}
+  {% for tick in chart.x_ticks %}
+    <line class="chart__axis" x1="{{ tick.x }}" y1="{{ chart.frame.bottom }}" x2="{{ tick.x }}" y2="{{ chart.frame.x_tick_end }}"/>
+    <text class="chart__tick" x="{{ tick.x }}" y="{{ chart.frame.x_label_y }}" text-anchor="middle">{{ tick.label }}</text>
+  {% endfor %}
+  <line class="chart__axis" x1="{{ chart.frame.left }}" y1="{{ chart.frame.top }}" x2="{{ chart.frame.left }}" y2="{{ chart.frame.bottom }}"/>
+  <line class="chart__axis" x1="{{ chart.frame.left }}" y1="{{ chart.frame.bottom }}" x2="{{ chart.frame.right }}" y2="{{ chart.frame.bottom }}"/>
+  {% for line in chart.band.label_lines %}
+    <text class="chart__label chart__label--band" x="{{ line.x }}" y="{{ line.y }}" text-anchor="{{ line.anchor }}">{{ line.text }}</text>
+  {% endfor %}
+  {% for point in chart.points %}
+    {% if point.is_vet %}
+      <polygon class="chart__point chart__point--vet" points="{{ point.diamond_points }}"><title>{{ point.description }}</title></polygon>
+    {% else %}
+      <circle class="chart__point chart__point--owner" cx="{{ point.x }}" cy="{{ point.y }}" r="5"><title>{{ point.description }}</title></circle>
+    {% endif %}
+  {% endfor %}
+</svg>{% endlocalize %}

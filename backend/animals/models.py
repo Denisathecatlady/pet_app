@@ -112,6 +112,11 @@ WEIGHT_MAX_KG: Final = max(high for _, high in WEIGHT_BOUNDS_KG.values())
 BCS_MIN: Final = 1
 BCS_MAX: Final = 9
 
+# No measurement is older than this (as no source in the library is, catalog YEAR_MIN). Without
+# a lower bound a date in year 1 was accepted for an animal without an exact birth date and
+# made the "all" period of the tracking page lay out a range of two millennia.
+MEASUREMENT_DATE_MIN: Final = date(1900, 1, 1)
+
 ALLERGY_MAX_LENGTH: Final = 60
 ALLERGY_MAX_COUNT: Final = 30
 
@@ -500,6 +505,11 @@ class BodyMeasurement(models.Model):
                 violation_error_message="Hmotnost je mimo povolené rozmezí.",
             ),
             models.CheckConstraint(
+                condition=Q(measured_on__gte=MEASUREMENT_DATE_MIN),
+                name="animals_measurement_date_min",
+                violation_error_message="Datum měření musí být 1. 1. 1900 nebo pozdější.",
+            ),
+            models.CheckConstraint(
                 condition=Q(bcs__isnull=True) | Q(bcs__gte=BCS_MIN, bcs__lte=BCS_MAX),
                 name="animals_measurement_bcs_range",
                 violation_error_message="BCS musí být celé číslo 1–9.",
@@ -523,13 +533,15 @@ class BodyMeasurement(models.Model):
         """Validate the date and the species-specific weight bounds.
 
         Raises:
-            ValidationError: measurement date in the future or before the animal's
-                exact birth date, weight outside the bounds of the animal's species,
+            ValidationError: measurement date in the future, before 1. 1. 1900 or before the
+                animal's exact birth date, weight outside the bounds of the animal's species,
                 BCS outside 1–9.
         """
         errors: dict[str, str] = {}
         if self.measured_on and self.measured_on > timezone.localdate():
             errors["measured_on"] = "Datum měření nemůže být v budoucnosti."
+        elif self.measured_on and self.measured_on < MEASUREMENT_DATE_MIN:
+            errors["measured_on"] = "Datum měření musí být 1. 1. 1900 nebo pozdější."
         elif self.animal_id is not None and _before_birth(self.animal, self.measured_on):
             errors["measured_on"] = (
                 "Datum měření nemůže být dřívější než datum narození zvířete "

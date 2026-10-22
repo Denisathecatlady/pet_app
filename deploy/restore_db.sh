@@ -22,6 +22,9 @@
 #   POSTGRES_USER, POSTGRES_HOST, POSTGRES_PORT, POSTGRES_PASSWORD | PGPASSFILE | PGPASSWORD
 #   BACKUP_PASSPHRASE_FILE                      file (mode 600), first line = passphrase
 #   POSTGRES_MAINTENANCE_DB                     optional, default postgres (for CREATE DATABASE)
+#   PGSSLMODE, PGSSLROOTCERT                    TLS of a remote server (require, verify-ca or
+#                                               verify-full are mandatory unless it is local)
+# RESTORE_TARGET_DB must not be postgres, template0, template1 or the maintenance database.
 # Exit status: 0 success, 1 the restore failed, 2 bad configuration or a safety rule refused it.
 
 set -euo pipefail
@@ -65,6 +68,7 @@ main() {
   require_vars RESTORE_TARGET_DB POSTGRES_DB POSTGRES_USER POSTGRES_HOST BACKUP_PASSPHRASE_FILE
   validate_db_name RESTORE_TARGET_DB
   validate_db_name POSTGRES_DB
+  reject_system_database RESTORE_TARGET_DB
 
   local overwrite=0
   if [ "$RESTORE_TARGET_DB" = "$POSTGRES_DB" ]; then

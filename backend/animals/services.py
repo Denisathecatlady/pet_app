@@ -13,7 +13,8 @@ from typing import Any, Final, NamedTuple
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch, QuerySet, prefetch_related_objects
+from django.db.models import F, Prefetch, Q, QuerySet, Window, prefetch_related_objects
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 from accounts.models import User, UserManager
@@ -86,7 +87,7 @@ class Attention(NamedTuple):
 
 # What a score means on the nine-point scale; worded as a reading of the score the user
 # entered, not as a diagnosis. Matches the scale described in the measurement form
-# (1 = vyhublé, 4–5 = ideální, 9 = těžká obezita). 🩺 texts to be reviewed (docs/12 §12.9).
+# (1 = vyhublé, 4–5 = střed škály, 9 = těžká obezita). 🩺 texts to be reviewed (docs/12 §12.9).
 _BCS_MEANING: Final = {
     1: "výrazné podvýživě",
     2: "výrazné podvýživě",
@@ -140,13 +141,14 @@ def attention(animal: Animal, *, today: date | None = None) -> Attention:
     * ``INFO``: no BCS recorded; a target weight that a vet has not confirmed.
     * ``OK`` otherwise. ``OK`` means only that the records give no reason to warn.
 
-    Inputs: the animal (measurements and conditions are read through prefetch caches
-    when present) and optionally today's date (default: today in ``TIME_ZONE``).
+    Inputs: the animal (the latest measurements and the conditions are read through the
+    prefetch of :data:`SUMMARY_PREFETCH` when present, see :func:`_latest_measurements`)
+    and optionally today's date (default: today in ``TIME_ZONE``).
     Output: :class:`Attention`; reasons are sorted from the most severe.
     """
     today = today or timezone.localdate()
-    prefetch_related_objects([animal], "measurements", "conditions__condition")
-    measurements = list(animal.measurements.all())  # newest first (Meta.ordering)
+    prefetch_related_objects([animal], "conditions__condition")
+    latest = _latest_measurements(animal)
     reasons: list[Reason] = []
 
     state_reason = _STATE_REASONS.get(animal.physiological_state)
@@ -170,7 +172,7 @@ def attention(animal: Animal, *, today: date | None = None) -> Attention:
                 )
             )
 
-    latest_bcs = next((m for m in measurements if m.bcs is not None), None)
+    latest_bcs = latest.bcs
     if latest_bcs is None:
         reasons.append(Reason(INFO, NO_BCS_REASON))
     else:
@@ -178,7 +180,7 @@ def attention(animal: Animal, *, today: date | None = None) -> Attention:
         if bcs_reason:
             reasons.append(bcs_reason)
 
-    latest_mcs = next((m for m in measurements if m.mcs), None)
+    latest_mcs = latest.mcs
     if latest_mcs is not None and latest_mcs.mcs != MuscleCondition.NORMAL:
         reasons.append(
             Reason(
@@ -241,30 +243,92 @@ class AnimalSummary:
 # The sparkline on a card draws the newest measurements only (docs/08 §8.3).
 SPARKLINE_MEASUREMENTS: Final = 12
 
+NEWEST_FIRST: Final = ("-measured_on", "-created_at", "-id")  # BodyMeasurement.Meta.ordering
+
+
+def _newest_per_animal(limit: int, condition: Q | None = None, *, attr: str) -> Prefetch:
+    """Prefetch the ``limit`` newest measurements of each animal that satisfy ``condition``.
+
+    A window function numbers the rows of each animal from the newest, and only the first
+    ``limit`` are loaded, so the rows read do not grow with the history of the animals.
+    The rows land in ``animal.<attr>``, newest first.
+    """
+    rows = BodyMeasurement.objects.all()
+    if condition is not None:
+        rows = rows.filter(condition)
+    rows = rows.annotate(
+        newest_rank=Window(
+            RowNumber(),
+            partition_by=F("animal_id"),
+            order_by=[F("measured_on").desc(), F("created_at").desc(), F("id").desc()],
+        )
+    )
+    return Prefetch(
+        "measurements",
+        queryset=rows.filter(newest_rank__lte=limit).order_by(*NEWEST_FIRST),
+        to_attr=attr,
+    )
+
+
+# Three constant queries for the measurements of any number of animals: the newest rows (the
+# sparkline and the latest weight), the newest one with a BCS and the newest one with an MCS
+# (the attention level needs the latest score of each, however long ago it was written).
 SUMMARY_PREFETCH: Final = (
-    "measurements",
+    _newest_per_animal(SPARKLINE_MEASUREMENTS, attr="newest_measurements"),
+    _newest_per_animal(1, Q(bcs__isnull=False), attr="latest_bcs_rows"),
+    _newest_per_animal(1, ~Q(mcs=""), attr="latest_mcs_rows"),
     Prefetch("conditions", queryset=AnimalHealthCondition.objects.select_related("condition")),
 )
+
+
+class LatestMeasurements(NamedTuple):
+    """What the dashboard and the attention level read from the measurements of an animal."""
+
+    newest: tuple[BodyMeasurement, ...]  # up to SPARKLINE_MEASUREMENTS, newest first
+    bcs: BodyMeasurement | None  # the newest measurement that has a BCS
+    mcs: BodyMeasurement | None  # the newest measurement that has an MCS
+
+
+def _latest_measurements(animal: Animal) -> LatestMeasurements:
+    """Return :class:`LatestMeasurements` of ``animal``.
+
+    With the prefetch of :data:`SUMMARY_PREFETCH` (the dashboard) no query is made. Without it
+    (the detail page, a single animal) all measurements are loaded once.
+    """
+    if hasattr(animal, "newest_measurements"):
+        return LatestMeasurements(
+            tuple(animal.newest_measurements),
+            next(iter(animal.latest_bcs_rows), None),
+            next(iter(animal.latest_mcs_rows), None),
+        )
+    prefetch_related_objects([animal], "measurements")
+    rows = list(animal.measurements.all())  # newest first (Meta.ordering)
+    return LatestMeasurements(
+        tuple(rows[:SPARKLINE_MEASUREMENTS]),
+        next((m for m in rows if m.bcs is not None), None),
+        next((m for m in rows if m.mcs), None),
+    )
 
 
 def summarize(animals: Iterable[Animal], *, today: date | None = None) -> list[AnimalSummary]:
     """Build dashboard summaries; prefetch ``SUMMARY_PREFETCH`` to avoid extra queries.
 
-    The sparkline of a card uses the newest ``SPARKLINE_MEASUREMENTS`` measurements taken
-    from the prefetched list, so the number of queries does not depend on the animals.
+    The sparkline of a card uses the newest ``SPARKLINE_MEASUREMENTS`` measurements, the
+    latest weight is the newest one and the latest BCS the newest score, however old. The
+    number of queries and of rows read does not depend on the number of measurements.
     """
     today = today or timezone.localdate()
     summaries = []
     for animal in animals:
-        measurements = list(animal.measurements.all())  # newest first (Meta.ordering)
+        latest = _latest_measurements(animal)
         summaries.append(
             AnimalSummary(
                 animal=animal,
                 age=age_text(animal, today=today),
-                latest_weight=measurements[0] if measurements else None,
-                latest_bcs=next((m for m in measurements if m.bcs is not None), None),
+                latest_weight=latest.newest[0] if latest.newest else None,
+                latest_bcs=latest.bcs,
                 attention=attention(animal, today=today),
-                trend=charts.build_sparkline(reversed(measurements[:SPARKLINE_MEASUREMENTS])),
+                trend=charts.build_sparkline(reversed(latest.newest)),
             )
         )
     return summaries

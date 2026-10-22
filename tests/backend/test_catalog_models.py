@@ -1,5 +1,5 @@
 """ScientificSource: validation, database constraints, ordering, history and deletion of the
-verifier's account (docs/07 §7.4, docs/13)."""
+verifier's account (docs/07 §7.4, docs/13-zdroje-v-aplikaci.md)."""
 
 from datetime import date, timedelta
 
@@ -374,3 +374,30 @@ def test_deleting_the_verifier_in_a_second_source_with_history_user(make_source,
     record.refresh_from_db()
     assert record.history_user is None
     assert ScientificSource.objects.filter(pk=source.pk).exists()
+
+
+# --- Display helpers -----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("source_type", "note", "extra"),
+    [
+        (
+            "MONOGRAPH",
+            "Vědecká monografie (Ad Hoc Committee on Dog and Cat Nutrition)",
+            "Ad Hoc Committee on Dog and Cat Nutrition",
+        ),
+        ("MONOGRAPH", "Vědecká monografie", ""),
+        ("ORIGINAL_STUDY", "Původní studie", ""),
+        ("ORIGINAL_STUDY", "Observační studie", "Observační studie"),
+        (
+            "GUIDELINE",
+            "Průmyslová doporučení, právně nezávazná",
+            "Průmyslová doporučení, právně nezávazná",
+        ),
+        ("GUIDELINE", "", ""),
+    ],
+)
+def test_type_note_extra_drops_only_words_that_repeat_the_type(source_type, note, extra):
+    source = ScientificSource(source_type=source_type, type_note=note)
+    assert source.type_note_extra == extra

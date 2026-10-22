@@ -85,9 +85,7 @@ class ActivationForm(forms.Form):
     password = forms.CharField(
         label="Heslo zvolené při registraci",
         strip=False,
-        widget=forms.PasswordInput(
-            attrs={"autocomplete": "current-password", "autofocus": True}
-        ),
+        widget=forms.PasswordInput(attrs={"autocomplete": "current-password", "autofocus": True}),
         help_text=(
             "Pokud jste se s touto adresou registrovali vícekrát, platí heslo z poslední "
             "registrace."

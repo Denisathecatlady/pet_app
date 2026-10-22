@@ -106,7 +106,7 @@ Adresář [`backend/`](backend/) obsahuje Django 5.2 LTS projekt (`config`) s ap
   [registru](docs/zdroje.md) s úrovní důkazů L1 až L6 a stavem ověření (B, A, P, S, neověřeno),
   filtry, hledání, legenda a upozornění, že uvedený zdroj není automaticky ověřený v originále.
   Data jsou v `backend/catalog/data/sources.json`, plní je `migrate` a `manage.py load_sources`,
-  shodu s registrem hlídá test ([docs/13](docs/13-zdroje-v-aplikaci.md)).
+  shodu s registrem hlídá test ([docs/13-zdroje-v-aplikaci.md](docs/13-zdroje-v-aplikaci.md)).
 
 Rozsah, oprávnění, pravidla upozornění a otevřené body popisuje
 [docs/12-ucty-a-zvirata.md](docs/12-ucty-a-zvirata.md). Webová aplikace zatím neimportuje
@@ -147,7 +147,7 @@ V produkci navíc:
 - Po `migrate` jednou spusťte `manage.py createcachetable`: limity e-mailů z účtu (aktivace,
   obnova hesla) žijí ve sdílené databázové cache, aby platily pro všechny pracovní procesy.
 - Denně spouštějte `manage.py purge_pending_accounts` a `manage.py clearsessions` (cron nebo
-  systemd timer). První smaže registrace, které nikdo neaktivoval do 7 dnů
+  systemd timer; příklad a `deploy/run_manage.sh` v `deploy/crontab.example`). První smaže registrace, které nikdo neaktivoval do 7 dnů
   (`PENDING_ACCOUNT_RETENTION`), druhý prošlé relace.
 - Za reverzní proxy s `DJANGO_SECURE_PROXY_SSL_HEADER` nastavte `DJANGO_TRUSTED_PROXY_COUNT`
   (obvykle 1), jinak aplikace nenastartuje: všichni návštěvníci by měli adresu proxy a zámek
@@ -169,11 +169,15 @@ Nástroje jsou v adresáři [`deploy/`](deploy/):
 | `backup_db.sh` | `pg_dump` rourou do `gpg --symmetric` (AES256), soubor `barf-RRRRmmddTHHMMSSZ.dump.gpg` a manifest `.sha256`; retence: nejnovějších 30 záloh a první záloha každého z posledních 12 měsíců |
 | `restore_db.sh` | ověření kontrolního součtu, rozšifrování do roury a `pg_restore` do `RESTORE_TARGET_DB`; ostrou databázi odmítne bez `--i-know-this-overwrites-production` |
 | `restore_test.sh` | měsíční test obnovy nejnovější zálohy do pomocné databáze, řádka do protokolu `RESTORE_TEST_LOG` |
-| `crontab.example` | denní záloha, měsíční test obnovy, `purge_pending_accounts`, `clearsessions` |
+| `run_manage.sh` | denní úlohy aplikace (`purge_pending_accounts`, `clearsessions`): načte `APP_ENV_FILE` **rozborem, ne shellem** (vygenerovaný `DJANGO_SECRET_KEY` s `$ & ( ) !` se nerozbije) a spustí `manage.py` |
+| `crontab.example` | dva crontaby: účet `barf-backup` (denní záloha, měsíční test obnovy) a účet `barf` (denní úlohy aplikace) |
 
 Skripty čtou připojení z `POSTGRES_*`, cesty z `BACKUP_DIR`, `BACKUP_PASSPHRASE_FILE`,
-`RESTORE_TARGET_DB`, `RESTORE_TEST_LOG` a nikdy nedávají heslo do argumentů. WAL archivace není
-vyzkoušená (jen popsaná v docs/13 §13.15).
+`RESTORE_TARGET_DB`, `RESTORE_TEST_LOG` a nikdy nedávají heslo do argumentů. Vzdálený server bez
+`PGSSLMODE=require|verify-ca|verify-full` odmítnou. Zálohy a heslo k nim patří samostatnému
+účtu operačního systému, ne účtu webové aplikace (docs/13-nasazeni-a-provoz.md §13.8).
+**Není implementováno:** přenos záloh mimo server (ruční krok, §13.11). WAL archivace není
+vyzkoušená (jen popsaná v docs/13-nasazeni-a-provoz.md §13.15).
 
 ### Knihovna zdrojů
 
@@ -188,7 +192,7 @@ cd backend
 
 Příkaz je bezpečné spouštět opakovaně (podruhé nic nezmění) a při chybě v souboru nezapíše nic.
 Změny provedené v administraci se přepíšou, pokud je dané pole v souboru; jak a proč viz
-[docs/13](docs/13-zdroje-v-aplikaci.md) §13.5. Shodu dokumentu a souboru ověří
+[docs/13-zdroje-v-aplikaci.md](docs/13-zdroje-v-aplikaci.md) §13.5. Shodu dokumentu a souboru ověří
 `.venv/bin/python -m pytest -q tests/backend/test_catalog_sync.py`.
 
 ### Role veterinárního lékaře
@@ -217,6 +221,13 @@ databázemi `barf_ops_test_*`, které na konci zahodí, a nesahají na `barf` an
 
 ```bash
 .venv/bin/python -m pytest -q tests/ops
+```
+
+Styl kódu: `ruff` s nastavením v `pyproject.toml` (délka řádku 100; výjimky jen pro generované
+migrace a dva dřívější balíčky `nutricalc` a `refdata` s jejich testy). Spouští se stejně všude:
+
+```bash
+ruff check . && ruff format --check .
 ```
 
 ## Předávací zpráva Fáze 1

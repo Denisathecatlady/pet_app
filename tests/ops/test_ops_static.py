@@ -9,13 +9,14 @@ import pytest
 
 from tests.ops.helpers import DEPLOY_DIR, REPO_DIR
 
-SCRIPTS = ["backup_db.sh", "restore_db.sh", "restore_test.sh"]
+SCRIPTS = ["backup_db.sh", "restore_db.sh", "restore_test.sh", "run_manage.sh"]
 ALL_SHELL = [*SCRIPTS, "lib.sh"]
 GUIDE = REPO_DIR / "docs" / "13-nasazeni-a-provoz.md"
 
 # Variables read by the scripts (the guide must describe every one of them).
 SCRIPT_VARIABLES = [
     "BARF_ENV_FILE",
+    "APP_ENV_FILE",
     "POSTGRES_DB",
     "POSTGRES_USER",
     "POSTGRES_HOST",
@@ -24,6 +25,8 @@ SCRIPT_VARIABLES = [
     "POSTGRES_MAINTENANCE_DB",
     "PGPASSFILE",
     "PGPASSWORD",
+    "PGSSLMODE",
+    "PGSSLROOTCERT",
     "BACKUP_DIR",
     "BACKUP_PASSPHRASE_FILE",
     "RESTORE_TARGET_DB",
@@ -73,7 +76,7 @@ FORBIDDEN = {
     r"--passphrase=": "gpg --passphrase=... puts the secret on the command line",
     r"--password": "a password option puts the secret on the command line",
     r"\s-W\b": "psql/pg_dump -W prompts for a password",
-    r"PGPASSWORD=\S+[ \t]+\w": "PGPASSWORD=... command belongs in the environment, not in a command",
+    r"PGPASSWORD=\S+[ \t]+\w": "PGPASSWORD=... command belongs in the environment, not a command",
     r"echo\s+.*(PASSWORD|PASSPHRASE)": "never echo a secret",
     r"set\s+-x": "xtrace would print the secrets",
     r"\bcurl\b|\bwget\b": "backups must not be sent anywhere by these scripts",
@@ -134,6 +137,79 @@ def test_crontab_example_schedules_every_required_job():
     assert monthly[0].split()[2].isdigit(), "the restore test runs once a month, on a fixed day"
 
 
+def test_crontab_example_never_runs_a_secrets_file_in_a_shell():
+    """app.env is read by run_manage.sh, which parses it: ``. app.env`` would run it as code
+    (and break a generated secret key that contains $ & ( ) !)."""
+    jobs = [
+        line
+        for line in (DEPLOY_DIR / "crontab.example").read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    text = "\n".join(jobs)
+
+    assert not re.search(r"(^|[\s;&])(\.|source)\s+\S*\.env\b", text)
+    assert "set -a" not in text and "bash -c" not in text
+    django_jobs = [
+        line for line in jobs if "purge_pending_accounts" in line or "clearsessions" in line
+    ]
+    assert len(django_jobs) == 2
+    for line in django_jobs:
+        assert "/deploy/run_manage.sh " in line, line
+    assert "APP_ENV_FILE=/etc/barf/app.env" in text
+
+
+def test_crontab_example_separates_the_backup_account_from_the_application_account():
+    lines = (DEPLOY_DIR / "crontab.example").read_text().splitlines()
+    marks = [i for i, line in enumerate(lines) if line.startswith("# ===== crontab of")]
+    assert len(marks) == 2
+    backup = "\n".join(lines[marks[0] : marks[1]])
+    application = "\n".join(lines[marks[1] :])
+
+    assert "backup_db.sh" in backup and "restore_test.sh" in backup
+    assert "run_manage.sh" not in backup
+    assert "run_manage.sh" in application
+    assert "backup_db.sh" not in application and "restore_test.sh" not in application
+    assert "barf-backup" in backup.splitlines()[0]
+
+
+def test_gitignore_keeps_secrets_and_backups_out_of_the_repository():
+    """A ``git add -A`` in a deployment checkout must not commit the passphrase, a password
+    file, an env file or an encrypted dump of personal data."""
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git is not installed")
+    ignored = [
+        ".env",
+        "ops.env",
+        "deploy/restore.env",
+        "app.env",
+        "backup-passphrase",
+        "backup_passphrase.txt",
+        "pgpass",
+        ".pgpass",
+        "barf-20261021T001723Z.dump",
+        "barf-20261021T001723Z.dump.gpg",
+        "barf-20261021T001723Z.dump.gpg.sha256",
+        ".barf-partial.abc123",
+        "restore-test.log",
+        "restore-test-2026.log",
+    ]
+    kept = [".env.example", "deploy/backup_db.sh", "deploy/crontab.example", "README.md"]
+
+    def is_ignored(path: str) -> bool:
+        result = subprocess.run(
+            [git, "check-ignore", "--quiet", "--no-index", path],
+            cwd=REPO_DIR,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode in (0, 1), result.stderr
+        return result.returncode == 0
+
+    assert [path for path in ignored if not is_ignored(path)] == []
+    assert [path for path in kept if is_ignored(path)] == []
+
+
 def test_guide_documents_every_variable_of_the_scripts():
     guide = GUIDE.read_text()
 
@@ -162,7 +238,7 @@ def test_scripts_only_read_the_documented_variables():
             )
         )
     # Shell variables of the library and placeholders in usage texts, not environment variables.
-    used -= {"BACKUP_NAME_RE", "BACKUP_STEM_RE", "BACKUP_FILE", "BACKUP_PATH"}
+    used -= {"BACKUP_NAME_RE", "BACKUP_STEM_RE", "BACKUP_FILE", "BACKUP_PATH", "BARF_ENV_NAMES"}
 
     assert used <= set(SCRIPT_VARIABLES), used - set(SCRIPT_VARIABLES)
 

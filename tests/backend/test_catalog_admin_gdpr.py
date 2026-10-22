@@ -209,6 +209,149 @@ def test_admin_change_is_recorded_in_history(admin_client, admin_user, make_sour
     assert LogEntry.objects.filter(object_id=str(source.pk)).exists()
 
 
+# --- Admin: verified_by is set by the admin, never typed or looked up ---------------------------
+
+
+@pytest.fixture
+def curator_client(client, make_user):
+    """A staff member who may only view and change sources (what a data curator needs)."""
+    from django.contrib.auth.models import Permission
+
+    curator = make_user("curator@example.cz", roles=(), is_staff=True)
+    curator.user_permissions.set(
+        Permission.objects.filter(
+            content_type__app_label="catalog",
+            codename__in=["view_scientificsource", "change_scientificsource"],
+        )
+    )
+    client.force_login(curator)
+    client.curator = curator
+    return client
+
+
+def test_a_curator_cannot_read_other_accounts_through_verified_by(
+    curator_client, make_user, make_source
+):
+    """The raw-id widget printed the e-mail of the account whose id was posted, so a curator
+    without permission on the user admin could enumerate the sequential ids and read the
+    address of every owner and vet from the re-rendered form."""
+    owner = make_user("owner@example.cz")
+    vet = make_user("vet@example.cz", roles=("vet",))
+    source = make_source()
+    url = reverse("admin:catalog_scientificsource_change", args=[source.pk])
+
+    assert curator_client.get(reverse("admin:accounts_user_changelist")).status_code == 403
+
+    for account in (owner, vet):  # (the admin header names the signed-in account itself)
+        data = admin_data(citation_key=source.citation_key, title="", verified_by=account.pk)
+        response = curator_client.post(url, data)  # a blank title: the form is shown again
+        content = response.content.decode()
+        assert response.status_code == 200
+        assert 'class="errorlist' in content  # the form was rejected and is shown again
+        assert account.email not in content, account.email
+        assert 'name="verified_by"' not in content
+    assert "owner@example.cz" not in curator_client.get(url).content.decode()
+
+
+def test_a_posted_verified_by_is_ignored(curator_client, make_user, make_source):
+    owner = make_user("owner@example.cz")
+    source = make_source()
+    data = admin_data(
+        citation_key=source.citation_key,
+        verification_level="B",
+        verification_markers=["B"],
+        last_verified_at="18.10.2026",
+        verified_by=owner.pk,
+    )
+
+    response = curator_client.post(
+        reverse("admin:catalog_scientificsource_change", args=[source.pk]), data
+    )
+
+    assert response.status_code == 302, response.content.decode()[:2000]
+    source.refresh_from_db()
+    assert source.verified_by == curator_client.curator  # who saved it, not who was typed
+
+
+def test_the_admin_records_the_verifier_only_when_the_verification_changes(
+    curator_client, make_user, make_source
+):
+    previous = make_user("previous@example.cz", roles=())
+    source = verified(make_source, previous, citation_key="Ver1")
+    url = reverse("admin:catalog_scientificsource_change", args=[source.pk])
+    same = admin_data(
+        citation_key="Ver1",
+        verification_level="B",
+        verification_markers=["B"],
+        last_verified_at="18.10.2026",
+        source_type=source.source_type,
+        evidence_level=source.evidence_level,
+        species_scope=source.species_scope,
+        year=str(source.year),
+        authors_or_org=source.authors_or_org,
+        title=source.title,
+    )
+
+    # A change that is not about the verification leaves the verifier alone.
+    assert curator_client.post(url, {**same, "limitations": "Nové omezení."}).status_code == 302
+    source.refresh_from_db()
+    assert source.limitations == "Nové omezení." and source.verified_by == previous
+
+    # A new verification date makes the signed-in curator the verifier.
+    assert curator_client.post(url, {**same, "last_verified_at": "19.10.2026"}).status_code == 302
+    source.refresh_from_db()
+    assert source.verified_by == curator_client.curator
+    assert source.last_verified_at == date(2026, 10, 19)
+
+    # Back to "not verified": no verifier, no date (the database requires it).
+    unverified = {**same, "verification_level": "NONE", "last_verified_at": ""}
+    unverified.pop("verification_markers")
+    assert curator_client.post(url, unverified).status_code == 302
+    source.refresh_from_db()
+    assert source.verified_by is None and source.last_verified_at is None
+
+
+def test_verified_status_without_a_date_is_a_form_error_not_a_server_error(
+    curator_client, make_source
+):
+    source = make_source()
+    response = curator_client.post(
+        reverse("admin:catalog_scientificsource_change", args=[source.pk]),
+        admin_data(
+            citation_key=source.citation_key,
+            verification_level="B",
+            verification_markers=["B"],
+            last_verified_at="",
+        ),
+    )
+    assert response.status_code == 200
+    assert "U ověřeného zdroje zadejte datum ověření." in response.content.decode()
+
+
+def test_the_change_form_says_whether_a_verifier_is_recorded_but_not_who(
+    admin_client, make_user, make_source
+):
+    verifier = make_user("verifier@example.cz", roles=())
+    recorded = verified(make_source, verifier, citation_key="Rec1")
+    plain = make_source(citation_key="Pla1")
+
+    shown = admin_client.get(
+        reverse("admin:catalog_scientificsource_change", args=[recorded.pk])
+    ).content.decode()
+    empty = admin_client.get(
+        reverse("admin:catalog_scientificsource_change", args=[plain.pk])
+    ).content.decode()
+
+    assert "zaznamenán kurátor" in shown and "verifier@example.cz" not in shown
+    assert "nezaznamenán" in empty
+
+
+def test_the_admin_form_has_the_registry_names_of_the_levels(admin_client):
+    content = admin_client.get(reverse("admin:catalog_scientificsource_add")).content.decode()
+    assert "úroveň odbornosti zdroje" in content
+    assert "poznámka k ověření z registru" in content
+
+
 # --- GDPR export ---------------------------------------------------------------------------------
 
 
@@ -242,7 +385,7 @@ def test_export_download_contains_the_section(logged_in_client, make_source, use
     assert json.loads(raw)["data"]["catalog"]["verified_sources"][0]["citation_key"] == "Mine1"
 
 
-# --- Deleting the account of a verifier ------------------------------------------------------------
+# --- Deleting the account of a verifier -------------------------------------------------------
 
 
 def test_deleting_an_account_through_the_page_keeps_the_sources(client, user, make_source):

@@ -14,7 +14,7 @@
 
 <p class="actions">
   {% if access.can.ADD_MEASUREMENT %}<a class="button" href="{% url 'animals:measurement_add' animal.uuid %}">Zapsat měření</a>{% endif %}
-  <a class="button button--secondary" href="{% url 'animals:tracking' animal.uuid %}">Graf hmotnosti a kondice</a>
+  <a class="button button--secondary" href="{% url 'animals:tracking' animal.uuid %}">Sledování hmotnosti a kondice</a>
   {% if access.can.EDIT %}<a class="button button--secondary" href="{% url 'animals:edit' animal.uuid %}">Upravit profil</a>{% endif %}
 </p>
 
@@ -72,10 +72,10 @@
 </div>
 
 <section aria-labelledby="measurements-title">
-  <h2 id="measurements-title">Hmotnost a kondice</h2>
-  <p><a href="{% url 'animals:tracking' animal.uuid %}">Zobrazit grafy hmotnosti a BCS</a></p>
+  <h2 id="measurements-title">Zapsaná měření</h2>
   {% if measurements %}
-    <div class="table-wrap" role="region" aria-labelledby="measurements-title" tabindex="0">
+    <p class="hint table-hint">Tabulku lze na úzké obrazovce posouvat do stran.</p>
+    <div class="table-wrap" role="region" aria-label="Tabulka měření, posuvná oblast" tabindex="0">
       <table class="data">
         <caption class="visually-hidden">Měření hmotnosti, BCS a MCS, nejnovější nahoře</caption>
         <thead>
@@ -92,7 +92,7 @@
         <tbody>
           {% for measurement in measurements %}
             <tr>
-              <td>{{ measurement.measured_on|short }}</td>
+              <td class="date">{{ measurement.measured_on|short }}</td>
               <td class="num">{{ measurement.weight_kg|kg }}</td>
               <td>{% if measurement.bcs %}{{ measurement.bcs }}/9{% else %}nezadáno{% endif %}</td>
               <td>{{ measurement.get_mcs_display|default:"nezadáno" }}</td>

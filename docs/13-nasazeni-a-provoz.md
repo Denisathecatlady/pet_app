@@ -20,7 +20,7 @@ měřeních, historii změn a záznamy o přihlášení (`django-axes`). **Zálo
 
 | Co | Kde |
 |---|---|
-| Skripty | `deploy/backup_db.sh`, `deploy/restore_db.sh`, `deploy/restore_test.sh`, společné funkce `deploy/lib.sh` |
+| Skripty | `deploy/backup_db.sh`, `deploy/restore_db.sh`, `deploy/restore_test.sh`, denní úlohy aplikace `deploy/run_manage.sh`, společné funkce `deploy/lib.sh` |
 | Ukázka plánovače | `deploy/crontab.example` |
 | Testy skriptů | `tests/ops/` (spouští je celá sada: `.venv/bin/python -m pytest -q`) |
 | Proměnné aplikace | [`.env.example`](../.env.example), §13.2 |
@@ -55,9 +55,16 @@ Aplikace (`config.settings.prod`) čte vše citlivé z proměnných prostředí 
 `manage.py` má výchozí nastavení `config.settings.dev`. **Na serveru vždy nastavte**
 `DJANGO_SETTINGS_MODULE=config.settings.prod` (`wsgi.py` už `prod` používá).
 
-Hodnoty s mezerami nebo znaky `< >` (např. `DJANGO_DEFAULT_FROM_EMAIL`) dávejte do uvozovek, pokud
-soubor čte i shell (denní úlohy v `crontab.example`). `EnvironmentFile` systemd uvozovky odstraní
-také. Soubor s tajemstvími patří správci a má režim `600` (`chmod 600 /etc/barf/app.env`).
+**Soubor s proměnnými (`/etc/barf/app.env`) se nikdy nespouští shellem.** Webový proces ho čte
+jako `EnvironmentFile=` systemd a denní úlohy jako `deploy/run_manage.sh` (§13.7), který ho
+**jen rozebere**: řádky `NAME=hodnota`, komentáře na vlastním řádku, hodnota může být v jedněch
+uvozovkách (`DJANGO_DEFAULT_FROM_EMAIL='BARF Nutri <noreply@barf.example.cz>'`), nic se
+nerozvíjí (`$`, `` ` ``, `&`, `;` jsou obyčejné znaky). Vygenerovaný `DJANGO_SECRET_KEY`
+(`get_random_secret_key()` vyrábí i znaky `$ & ( ) ! # % ^ * =`) proto lze zapsat tak, jak je.
+Aby oba čtenáři viděli totéž, nepoužívejte v hodnotách zpětné lomítko ani uvozovku. Kdyby
+soubor načítal shell (`. app.env`), vygenerovaný klíč by se většinou rozbil nebo tiše změnil a
+chyba v uvozování by se provedla jako příkaz: proto se tak nikdy nenačítá. Soubor s tajemstvími
+patří účtu aplikace a má režim `600` (`chmod 600 /etc/barf/app.env`).
 
 ### Skripty záloh
 
@@ -71,9 +78,11 @@ ostatní řádky (například `DJANGO_*` ze sdíleného souboru) se přeskočí.
 
 | Proměnná | Skript | Význam |
 |---|---|---|
-| `BARF_ENV_FILE` | všechny | Cesta k souboru s konfigurací (režim 600), nepovinná |
+| `BARF_ENV_FILE` | backup, restore, restore_test | Cesta k souboru s konfigurací (režim 600), nepovinná |
+| `APP_ENV_FILE` | run_manage | Cesta k souboru s proměnnými aplikace (`app.env`, režim 600), povinná. Rozebírá se stejně jako `BARF_ENV_FILE`, ale přebírají se jen názvy `DJANGO_*` a `POSTGRES_*` a `DJANGO_SETTINGS_MODULE` má výchozí `config.settings.prod` |
 | `POSTGRES_DB` | všechny | Zálohovaná (živá) databáze. Název: písmena, číslice, `_` a `-`, začíná písmenem nebo `_` |
-| `POSTGRES_USER`, `POSTGRES_HOST` | všechny | Role a server (název, adresa, nebo adresář soketu) |
+| `POSTGRES_USER`, `POSTGRES_HOST` | backup, restore, restore_test | Role a server (název, adresa, nebo adresář soketu). **Server, který není lokální** (jiný než adresář soketu, `localhost`, `127.0.0.1`, `::1`), skript přijme jen s `PGSSLMODE` |
+| `PGSSLMODE`, `PGSSLROOTCERT` | backup, restore, restore_test | `PGSSLMODE` musí být `require`, `verify-ca` nebo `verify-full`, jakmile je server vzdálený; výchozí chování knihovny libpq (`prefer`) při zásahu v síti tiše přejde na nešifrované spojení a záloha nese celou databázi. Doporučené je `verify-full` s kořenovým certifikátem v `PGSSLROOTCERT`. Jinak skript skončí kódem 2 |
 | `POSTGRES_PORT` | všechny | Nepovinná, výchozí 5432 |
 | `POSTGRES_PASSWORD`, `PGPASSFILE`, `PGPASSWORD` | všechny | Heslo, vyžaduje se aspoň jedno. Pořadí: `PGPASSFILE` (soubor v režimu 600, zděděné `PGPASSWORD` se zruší), potom `POSTGRES_PASSWORD`, potom zděděné `PGPASSWORD`. Heslo se předává jen prostředím, **nikdy argumentem** |
 | `POSTGRES_MAINTENANCE_DB` | restore, restore_test | Databáze pro `CREATE`/`DROP DATABASE`, výchozí `postgres` |
@@ -81,10 +90,14 @@ ostatní řádky (například `DJANGO_*` ze sdíleného souboru) se přeskočí.
 | `BACKUP_PASSPHRASE_FILE` | všechny | Soubor (režim 600), jehož první řádek je heslo k šifrování, alespoň 20 znaků |
 | `RESTORE_TARGET_DB` | restore | Databáze, do které se obnovuje |
 | `RESTORE_TEST_LOG` | restore_test | Absolutní cesta k protokolu měsíčního testu obnovy (adresář musí existovat) |
-| `GNUPGHOME` | všechny | Nepovinná, domovský adresář GnuPG (výchozí `~/.gnupg` uživatele, pod kterým skript běží) |
+| `GNUPGHOME` | backup, restore, restore_test | Nepovinná, domovský adresář GnuPG (výchozí `~/.gnupg` uživatele, pod kterým skript běží) |
 
-Skripty vyžadují bash 4.4+, GNU coreutils a Linux (`stat -c`, `readlink -f`), `gpg` 2.1+ (kvůli
-`--pinentry-mode loopback`), `pg_dump`, `pg_restore` a `psql` ve verzi serveru nebo novější.
+Skripty vyžadují bash 4.4+, GNU coreutils a Linux (`stat -c`, `readlink -f`, `date -d`), `gpg`
+2.2.7+ (kvůli `--pinentry-mode loopback` a `--no-symkey-cache`), `pg_dump`, `pg_restore` a `psql` ve
+verzi serveru nebo novější. `gpg` dostane prostředí bez `POSTGRES_PASSWORD`, `PGPASSWORD` a
+`PGPASSFILE`: první volání spustí démona `gpg-agent`, který přežije skript a uchovává prostředí,
+se kterým vznikl, takže by v něm heslo k databázi zůstalo i po jeho změně; heslo k zálohám
+agent díky `--no-symkey-cache` neukládá.
 Zprávy skriptů jsou anglicky (jako komentáře v nastavení), dokumentace česky.
 
 ## 13.3 Kontrolní seznam prvního nasazení 🛠
@@ -96,7 +109,8 @@ Příkazy se spouštějí z `backend/` s načtenými proměnnými z §13.2 a
    příkazů):
    `CREATE ROLE barf LOGIN PASSWORD '…'; CREATE DATABASE barf OWNER barf ENCODING 'UTF8' TEMPLATE template0;`
    V `pg_hba.conf` povolte roli jen z adresy aplikace a s `scram-sha-256`. Spojení přes síť
-   šifrujte (`PGSSLMODE` / `ssl = on`).
+   šifrujte (`ssl = on` na serveru, `PGSSLMODE` u klienta; skripty záloh vzdálený server bez
+   `PGSSLMODE=require|verify-ca|verify-full` odmítnou, §13.2).
 2. **Kód a závislosti.** `python3 -m venv .venv && .venv/bin/pip install -e .` (bez vývojových závislostí, tedy
    bez extra `dev`).
    Verze jsou zamčené v `pyproject.toml`; WSGI server (§13.5) a jeho verzi přidejte vlastním,
@@ -129,7 +143,7 @@ na kopii z posledního testu obnovy.
 ## 13.4 Co bylo a nebylo vyzkoušeno (stručně) 🛠
 
 Podrobně v §13.12. Kroky 3 až 7 a 9 z §13.3, `purge_pending_accounts` a `clearsessions` byly
-spuštěny s `config.settings.prod` na pokusné databázi a skripty záloh mají 104 automatických testů.
+spuštěny s `config.settings.prod` na pokusné databázi a skripty záloh mají 149 automatických testů.
 **Nasazení za skutečnou proxy s TLS, WAL archivace, přenos záloh mimo server a běh pod cronem
 vyzkoušené nejsou.**
 
@@ -224,12 +238,15 @@ spamu 🟡 netestováno.
 
 | Úloha | Příkaz | Co dělá |
 |---|---|---|
-| Neaktivované registrace | `manage.py purge_pending_accounts` | Smaže registrace, které nikdo neaktivoval do 7 dnů (`PENDING_ACCOUNT_RETENTION`). Je to osobní údaj osoby, která registraci možná nezaložila ([12](12-ucty-a-zvirata.md) §12.8, bod 8) |
-| Prošlé relace | `manage.py clearsessions` | Maže prošlé relace z databáze (jinak tabulka `django_session` jen roste) |
+| Neaktivované registrace | `deploy/run_manage.sh purge_pending_accounts` (= `manage.py`, §13.2) | Smaže registrace, které nikdo neaktivoval do 7 dnů (`PENDING_ACCOUNT_RETENTION`). Je to osobní údaj osoby, která registraci možná nezaložila ([12](12-ucty-a-zvirata.md) §12.8, bod 8) |
+| Prošlé relace | `deploy/run_manage.sh clearsessions` | Maže prošlé relace z databáze (jinak tabulka `django_session` jen roste) |
 | Záloha | `deploy/backup_db.sh` | §13.8 |
 | Test obnovy | `deploy/restore_test.sh` | Jednou měsíčně, §13.10 |
 
-Crontab zapisuje chybový výstup do `/var/log/barf/` a při selhání vypíše jednu řádku, kterou cron
+`run_manage.sh` načte `APP_ENV_FILE` (parsováním, ne shellem), nastaví `DJANGO_SETTINGS_MODULE`
+(výchozí `config.settings.prod`) a spustí `.venv/bin/python manage.py …` v adresáři `backend/`
+stejného repozitáře. Crontab zapisuje výstup do `/var/log/barf/` (úlohy aplikace) a
+`/var/log/barf-backup/` (zálohy, §13.8) a při selhání vypíše jednu řádku, kterou cron
 pošle poštou na `MAILTO`. **Úloha, která nikdy neběžela, žádnou poštu nepošle**: proto je v
 kontrolním seznamu (§13.13) ruční kontrola stáří nejnovější zálohy.
 
@@ -266,15 +283,46 @@ zůstat soubor `.barf-partial.*`; je neúplný, smažte ho ručně. Kód 2 zname
 odmítne spustit, když chybí proměnná, `BACKUP_DIR` je čitelný pro ostatní, soubor s heslem má
 volná práva nebo heslo kratší než 20 znaků.
 
+### Účty operačního systému: zálohy odděleně od aplikace 🛠
+
+Zálohy, heslo k jejich šifrování a heslo zálohovací role **nepatří účtu, pod kterým běží webová
+aplikace**. Kdo získá vykonávání kódu ve webovém procesu (chyba v aplikaci nebo závislosti), by
+jinak přečetl heslo i staré zašifrované zálohy, tedy také údaje, které už byly z živé databáze
+smazány (§13.14), a mohl by lokální zálohy smazat nebo přepsat. Zálohovací role jen ke čtení v
+PostgreSQL (níže) chrání databázi, ne soubory na disku. Doporučené rozdělení:
+
+| Účet | Vlastní a smí číst | Spouští |
+|---|---|---|
+| `barf` (aplikace) | `/etc/barf/app.env` (600), `/var/log/barf/` | WSGI server, denní úlohy aplikace (`run_manage.sh`) |
+| `barf-backup` | `/etc/barf/ops.env`, `restore.env`, `backup-passphrase`, `pgpass` (vše 600), `BACKUP_DIR` `/var/backups/barf` (700), `/var/log/barf-backup/` | `backup_db.sh`, `restore_test.sh`, kopírování záloh mimo server |
+| `root` | `/opt/barf` včetně `deploy/` (kód, nikdo jiný nezapisuje) | instalace a aktualizace |
+
+Účet `barf` nečte nic z `/etc/barf` kromě `app.env` ani `/var/backups/barf`; účet `barf-backup`
+nečte `app.env`. Skripty `deploy/` patří rootovi a účet aplikace je nemůže změnit, protože
+běží s právy záloh. Přenos záloh mimo server (§13.11) patří také účtu `barf-backup`.
+
+**Obnova ostré databáze** (§13.10) je zásah správce: spouští ji osoba s přístupem k heslu k
+zálohám (například `sudo -u barf-backup`), ne webová aplikace.
+
+🟡 *Netestováno:* rozdělení na dva účty se zde nezkoušelo (vývojové prostředí běží pod jedním
+uživatelem; skripty a testy práva souborů kontrolují, ale oba účty nevytvářejí). Příkazy
+ověřte při nasazení.
+
 ### Příprava (jednorázově)
 
 ```bash
-# Hesla vytvořte náhodně a uložte je podle §13.11. Heslo k šifrování NEZTRATIT (§13.13).
-install -d -m 700 /etc/barf /var/backups/barf /var/log/barf
-umask 077
+# Jako root. Hesla vytvořte náhodně a uložte je podle §13.11. Heslo k šifrování NEZTRATIT (§13.13).
+useradd --system --create-home --home-dir /var/lib/barf-backup --shell /usr/sbin/nologin barf-backup
+install -d -m 755 /etc/barf
+install -d -o barf-backup -g barf-backup -m 700 /var/backups/barf /var/log/barf-backup
+install -d -o barf -g barf -m 750 /var/log/barf
+for soubor in backup-passphrase pgpass ops.env restore.env; do
+    install -o barf-backup -g barf-backup -m 600 /dev/null "/etc/barf/$soubor"
+done
+install -o barf -g barf -m 600 /dev/null /etc/barf/app.env
+# ">" zachová vlastníka a režim souboru, který už existuje.
 openssl rand -base64 36 > /etc/barf/backup-passphrase          # první řádek je heslo
 printf '%s\n' 'localhost:5432:*:barf_backup:HESLO_ZALOHOVACI_ROLE' > /etc/barf/pgpass
-chmod 600 /etc/barf/backup-passphrase /etc/barf/pgpass
 ```
 
 Role v PostgreSQL (vyzkoušeno ručně, §13.12): **zálohovací role jen ke čtení** a **samostatná role pro
@@ -286,7 +334,7 @@ CREATE ROLE barf_backup LOGIN PASSWORD '…' IN ROLE pg_read_all_data;   -- Post
 CREATE ROLE barf_restore LOGIN PASSWORD '…' CREATEDB;                  -- jen pro test obnovy
 ```
 
-`/etc/barf/ops.env` (záloha) a `/etc/barf/restore.env` (test obnovy), oba `chmod 600`:
+`/etc/barf/ops.env` (záloha) a `/etc/barf/restore.env` (test obnovy), oba vlastní `barf-backup`, režim 600:
 
 ```
 POSTGRES_DB=barf
@@ -298,18 +346,24 @@ BACKUP_DIR=/var/backups/barf
 BACKUP_PASSPHRASE_FILE=/etc/barf/backup-passphrase
 ```
 
+Je-li databáze na **jiném serveru**, přidejte `PGSSLMODE=verify-full` a
+`PGSSLROOTCERT=/etc/barf/db-ca.crt`; bez `PGSSLMODE` (`require`, `verify-ca` nebo `verify-full`)
+skript vzdálený server odmítne (§13.2).
+
 V `restore.env` je `POSTGRES_USER=barf_restore`, vlastní `PGPASSFILE` (v souboru je heslo role
 `barf_restore`; řádek `localhost:5432:*:barf_restore:…` s hvězdičkou, protože test obnovy se
-připojuje i k pomocným databázím) a navíc `RESTORE_TEST_LOG=/var/log/barf/restore-test.log`.
+připojuje i k pomocným databázím) a navíc `RESTORE_TEST_LOG=/var/log/barf-backup/restore-test.log`.
 
 ### Spuštění a plán
 
 ```bash
+# jako účet barf-backup (sudo -u barf-backup …)
 BARF_ENV_FILE=/etc/barf/ops.env deploy/backup_db.sh        # vypíše cestu k nové záloze
 BARF_ENV_FILE=/etc/barf/ops.env deploy/backup_db.sh --prune-only   # jen retence
 ```
 
-Plán: `deploy/crontab.example` (záloha denně, test obnovy 3. dne v měsíci, denní úlohy aplikace).
+Plán: `deploy/crontab.example` obsahuje **dva crontaby**: pro účet `barf-backup` (záloha denně, test
+obnovy 3. dne v měsíci) a pro účet `barf` (denní úlohy aplikace, §13.7).
 Zálohovat se má alespoň jednou denně; retence počítá soubory (§13.9).
 
 Po zálohování **přeneste soubory mimo server** (§13.11). Skripty to záměrně nedělají.
@@ -326,9 +380,27 @@ po každé úspěšné záloze ponechá:
 všechny ostatní soubory s názvem **přesně** `barf-RRRRmmddTHHMMSSZ.dump.gpg` (včetně platného
 data a času) smaže i s jejich manifestem. Cizí soubory, složky, odkazy a soubory s jiným názvem
 se nikdy nemažou (test to ověřuje na řadě podobných názvů). Osiřelý manifest (bez zálohy) se smaže.
-Retence se řídí nejnovější zálohou, ne hodinami serveru, takže po výpadku zálohování se poslední
-dobré zálohy nesmažou. Obráceně to znamená, že při dlouhém výpadku staré soubory zůstanou, dokud
-nevzniknou nové: stáří nejnovější zálohy proto hlídejte zvlášť (§13.13).
+Retence čte čas **z názvů souborů**, ne z hodin serveru ani z data souboru, takže po výpadku
+zálohování se poslední dobré zálohy nesmažou. Obráceně to znamená, že při dlouhém výpadku staré
+soubory zůstanou, dokud nevzniknou nové: stáří nejnovější zálohy proto hlídejte zvlášť (§13.13).
+
+**Názvy napřed před hodinami serveru.** Jediné, co se s hodinami serveru porovnává: název, jehož
+čas je o **víc než jeden den napřed**, se do výpočtu nezapočítá a **nikdy se nemaže**. Vzniká,
+když se hodiny serveru vrátily zpět (vybitá baterie hodin, obnovený snímek virtuálního stroje),
+nebo když do adresáře někdo vloží soubor s budoucím datem (adresář se skupinou s právem zápisu).
+Kdyby se započítal, byl by „nejnovější“ zálohou: posunul by okno 12 měsíců do budoucnosti
+(jediný soubor `barf-20991231T235959Z.dump.gpg` stačil ke smazání všech měsíčních záloh) a 30
+takových názvů by vytlačilo i právě vytvořenou zálohu. Skript je hlásí v protokolu řádkou
+`WARNING … ahead of the clock` (a `N ignored` v závěrečném řádku). Zkontrolujte hodiny, nebo
+soubory odstraňte ručně; do té doby zůstávají.
+
+**Právě vytvořená záloha se nikdy nesmaže.** Kdyby ji pravidlo vyřadilo (v adresáři je 30 a víc
+novějších názvů, které ještě nejsou „z budoucnosti“), skript **nesmaže nic**, zapíše `ERROR` a
+skončí kódem 1; záloha zůstává.
+
+**Neřešeno:** hodiny, které skočí **dopředu**, skript nepozná (název z budoucnosti je pak
+skutečně nejnovější). Hodiny serveru proto udržujte synchronizované (NTP). Obě chování
+ověřují `tests/ops/test_ops_prune.py` a `test_ops_backup.py` (§13.12).
 
 Retence se týká jen adresáře `BACKUP_DIR`. **Kopie mimo server mají vlastní pravidlo**, které musí
 dávat stejné lhůty (jinak zůstanou osobní údaje déle, než slibuje *Ochrana osobních údajů*, §13.14).
@@ -354,6 +426,12 @@ ta, kterou skript sám vytvořil).
 **Ochrana ostré databáze.** Je-li `RESTORE_TARGET_DB` stejná jako `POSTGRES_DB`, skript odmítne
 (kód 2), dokud nepřidáte `--i-know-this-overwrites-production`. Pak nahradí tabulky ze zálohy
 (`pg_restore --clean --if-exists`); objekty, které v záloze nejsou, zůstanou.
+
+**Ochrana systémových databází.** `RESTORE_TARGET_DB` nesmí být `postgres`, `template0`,
+`template1` ani `POSTGRES_MAINTENANCE_DB` (kód 2, nic se nezmění). Prázdná `template1` nebo
+`postgres` by jinak prošla kontrolou „cíl je prázdný“ a údaje majitelů a zvířat by se zkopírovaly
+do každé databáze vytvořené později (včetně pomocných databází testu obnovy). Z toho plyne, že
+živá databáze aplikace se nesmí jmenovat `postgres` ani `template1`.
 
 ### Postup při ztrátě nebo poškození databáze
 
@@ -413,7 +491,7 @@ nezapsala se žádná řádka).
 |---|---|---|---|---|
 | (doplní provozovatel) | | | | |
 
-Při FAIL: 1. Neignorujte. 2. Podívejte se do protokolu (`/var/log/barf/restore-test.log`), kde je
+Při FAIL: 1. Neignorujte. 2. Podívejte se do protokolu (`/var/log/barf-backup/restore-test.log`), kde je
 důvod. 3. Udělejte novou zálohu a test opakujte. 4. Nepovede-li se, berte **všechny** zálohy jako
 nepoužitelné, dokud se příčina nenajde (§13.13). Jednou ročně doporučujeme **ruční zkoušku**:
 obnovit zálohu do kopie, nechat na ní běžet aplikaci a přihlásit se (🛠 doporučení).
@@ -426,6 +504,11 @@ obnovit zálohu do kopie, nechat na ní běžet aplikaci a přihlásit se (🛠 
   nástroj pro objektové úložiště apod. 🟡 netestováno) a hlídejte jeho výsledek.
 - **Šifrované už při vzniku.** Soubory jsou AES-256 zašifrované před uložením, přenos mimo server
   proto smí běžet i přes nedůvěryhodné úložiště; přesto přenášejte přes TLS nebo SSH.
+- **Samostatný účet operačního systému pro zálohy** (`barf-backup`, §13.8): zálohy, heslo k nim
+  a soubor s heslem zálohovací role nesmí číst ani měnit účet webové aplikace. Útočník, který
+  získá kód ve webovém procesu, jinak rozšifruje i údaje, které už byly z živé databáze smazány
+  (§13.14), a může zálohy smazat. Skripty v `deploy/` patří rootovi. Tento bod zatím není
+  vyzkoušený na skutečném serveru (§13.12).
 - **Heslo k šifrování uchovávejte odděleně od záloh**: jiný systém, jiný účet, jiná osoba nebo
   alespoň správce hesel a uzavřená obálka v trezoru. Kdo má zálohy i heslo, má všechna data.
   Aby zálohy šly dělat automaticky, leží heslo i na serveru (`/etc/barf/backup-passphrase`, režim
@@ -445,7 +528,7 @@ Debian/Ubuntu.
 
 **Vyzkoušeno:**
 
-- `tests/ops/` (104 testů; pracují jen s pokusnými databázemi `barf_ops_test_*` a
+- `tests/ops/` (149 testů; pracují jen s pokusnými databázemi `barf_ops_test_*` a
   `barf_restore_test_*`, které si vytvoří test obnovy, a nikdy nesahají na `barf` ani `test_barf`): záloha vytvoří právě jeden `.gpg` a jeden `.sha256`; soubor není bez
   rozšifrování platný dump a neobsahuje čitelné údaje; obnova do nové databáze reprodukuje obsah
   **všech** tabulek (MD5 přes text všech řádků každé tabulky); odmítnutí ostré databáze bez příznaku a přepis s ním;
@@ -453,6 +536,18 @@ Debian/Ubuntu.
   i poškození s přepsaným manifestem, i useknutý archiv); záloha selže při chybějící proměnné, při
   světově čitelném `BACKUP_DIR`, volných právech k heslu, krátkém hesle a nezanechá žádný soubor;
   retence na vytvořených názvech souborů včetně nahodilých (`hypothesis`) a ochrany cizích souborů;
+  **názvy napřed před hodinami serveru** se nezapočítají a nemažou (jediný soubor z roku 2099
+  nesmaže měsíční zálohy; 31 názvů „z budoucnosti“ nesmaže novou zálohu) a záloha, kterou by
+  pravidlo vyřadilo, zůstane s kódem 1 (§13.9); **vzdálený server bez `PGSSLMODE`** všechny tři
+  skripty odmítnou (kód 2), lokální (soket, `localhost`, `127.0.0.1`, `::1`) projdou; **obnova do
+  `postgres`, `template0`, `template1` a do udržovací databáze** se odmítne (testy používají
+  poškozený soubor, takže systémovou databázi nemohou změnit ani při chybě pravidla); `gpg`
+  nedostane `POSTGRES_PASSWORD`, `PGPASSWORD` ani `PGPASSFILE` (obal na `gpg` zapisuje své
+  prostředí);
+  `run_manage.sh`: 200 vygenerovaných klíčů `get_random_secret_key()` dorazí beze změny, `$(…)`,
+  `;`, `&` a `$HOME` v hodnotě se nespustí ani nerozvinou, jiné názvy než `DJANGO_*` a
+  `POSTGRES_*` se přeskočí, soubor s volnými právy se odmítne;
+  `.gitignore` zachytí soubory `*.env`, `*passphrase*`, `*pgpass*`, `*.dump`, `*.dump.gpg`;
   test obnovy zapíše `OK` a `FAIL` (poškozená záloha, rozdílné počty, rozdílný seznam tabulek,
   chybějící tabulky, žádná záloha) a vždy zahodí pomocnou databázi; **žádný program nedostane heslo
   ani tajemství v argumentech** (zachyceno obalem na `pg_dump`, `psql`, `pg_restore`, `gpg`).
@@ -462,7 +557,9 @@ Debian/Ubuntu.
   `CREATEDB` test obnovy správně odmítne; první nasazení s `config.settings.prod` na pokusné
   databázi (`migrate`, `createcachetable`, `collectstatic`, `load_sources`,
   `createsuperuser --noinput`, `purge_pending_accounts`, `clearsessions`, `check --deploy`) s
-  proměnnými ze souboru v uvozovkách načteného shellem jako v `crontab.example`; gunicorn s
+  proměnnými ze souboru `app.env` načteného skriptem `run_manage.sh`, včetně vygenerovaného klíče
+  s `$ & # ( ) ^ %` bez uvozovek (`migrate`, `clearsessions`, `purge_pending_accounts`,
+  `check --deploy` s `config.settings.prod`: jediné upozornění `security.W021`); gunicorn s
   hlavičkami proxy zadanými ručně (`curl`): bez `X-Forwarded-Proto: https` přesměrování 301, s ní
   200, cizí `Host` 400, `/static/` 404.
 
@@ -474,6 +571,10 @@ Debian/Ubuntu.
   serveru;
 - běh pod cronem a systemd a zasílání pošty na `MAILTO` (příkazy z `crontab.example` byly spuštěny
   ručně v ekvivalentní podobě, rozpis se kontroluje jen staticky);
+- **rozdělení na účty `barf` a `barf-backup`** (§13.8): práva souborů skripty a testy kontrolují,
+  ale dva účty se zde nevytvářely; stejně tak chování cronu pro účet s `nologin`;
+- **TLS k vzdálenému PostgreSQL**: pravidlo `PGSSLMODE` se kontroluje, spojení s TLS se zde
+  nezkoušelo (lokální server je bez TLS a vzdálený server nebyl k dispozici);
 - přenos záloh mimo server a jejich životní cyklus;
 - zálohování velké databáze (snímek drží transakci po celou dobu zálohy; u malé databáze trvá
   sekundy), výkon při zátěži, obnova na jinou hlavní verzi PostgreSQL nebo s jinou kolací;
@@ -497,7 +598,7 @@ Debian/Ubuntu.
 |---|---|
 | **Ztracené nebo zapomenuté heslo k šifrování** | **Zálohy zašifrované tímto heslem jsou nenávratně ztracené.** Žádný záložní klíč neexistuje (AES-256 symetricky). Vytvořte okamžitě nové heslo a novou zálohu, starou řadu ověřte jinou kopií hesla. Prevence: aspoň dvě nezávislá místa (§13.11) |
 | Heslo k šifrování uniklo | Vytvořte nové heslo a novou zálohu (`backup_db.sh` s novým `BACKUP_PASSPHRASE_FILE`); staré zálohy buď smažte, nebo přešifrujte (rozšifrovat starým heslem a zašifrovat novým, ručně přes `gpg`). Pokud unikly i soubory záloh, jde o **únik osobních údajů**: posuďte s právníkem povinnost hlášení ([12](12-ucty-a-zvirata.md) §12.8, lhůta podle GDPR čl. 33 je 72 hodin) |
-| Záloha nevznikla, soubor starší než 26 h | Podívejte se do `/var/log/barf/backup.log`. Nejčastěji plný disk, změněné heslo role, nedostupný server. Opravit a spustit ručně |
+| Záloha nevznikla, soubor starší než 26 h | Podívejte se do `/var/log/barf-backup/backup.log`. Nejčastěji plný disk, změněné heslo role, nedostupný server. Opravit a spustit ručně |
 | `restore_test.sh` skončil FAIL | Viz §13.10; do opravy nelze spoléhat na žádnou zálohu |
 | Databáze ztracena nebo poškozena | Postup v §13.10 |
 | Server napaden, podezření na únik | Odpojit aplikaci; zachovat kopii disku a protokolů; vyměnit **všechna** tajemství (`DJANGO_SECRET_KEY` odhlásí všechny, heslo databáze, SMTP, heslo k zálohám); zálohy mimo server berte jako důvěrné; únik řešit s právníkem |
@@ -581,3 +682,6 @@ druhou ochranou: obnovitelný je i na jiné hlavní verzi PostgreSQL, WAL ne.
    (§13.13 ji ukládá jako ruční nebo monitorovací úkol).
 5. WSGI server a reverzní proxy nejsou součástí repozitáře; přidat zamčenou verzi a ověřenou
    konfiguraci až při volbě hostingu.
+6. **Hodiny serveru, které skočí dopředu**, retence nepozná (§13.9); synchronizace času (NTP) a
+   hlídání stáří nejnovější zálohy to musí pokrýt.
+7. **Rozdělení účtů `barf` a `barf-backup`** (§13.8) vyzkoušet na serveru a zapsat výsledek.

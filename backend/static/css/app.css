@@ -37,10 +37,11 @@
   --color-success-bg: #e8f5ec;
   --color-success-border: #2e7d43;
 
-  /* Charts. Marks and lines: >= 3:1 against --color-surface (4.6:1 and better); chart text
-     uses --color-muted / --color-text (>= 7:1). Weight and vet marker also differ by
-     shape, so the two colours are never the only cue. Validated as a palette for both
-     schemes (OKLab distance, CVD simulation). */
+  /* Charts. Marks and lines: >= 3:1 against --color-surface (the lowest measured value is
+     4.1:1, the band edge); chart text uses --color-muted / --color-text (>= 7:1). The weight
+     and the vet colour are close in lightness (1.4:1 light, 1.1:1 dark), so the SHAPE (circle,
+     diamond) is what tells them apart, never the colour. tests/backend/test_chart_colours.py
+     recomputes the contrast of these tokens for both schemes. */
   --chart-weight: #0b57a4;
   --chart-vet: #b45309;
   --chart-axis: #6b7380;
@@ -682,9 +683,28 @@ h3 {
   min-width: 9.5rem;
 }
 
+/* position: relative makes the wrapper the containing block of the visually hidden texts in
+   its cells, so they are clipped by overflow-x and cannot widen the whole page on a phone. */
 .table-wrap {
+  position: relative;
   overflow-x: auto;
   margin-bottom: var(--space-3);
+}
+
+/* A date is read as one unit: "19. 10. 2026" does not wrap. */
+table.data td.date {
+  white-space: nowrap;
+}
+
+/* Only on a narrow screen, where some columns are out of sight. */
+.table-hint {
+  display: none;
+}
+
+@media (max-width: 40rem) {
+  .table-hint {
+    display: block;
+  }
 }
 
 table.data {
@@ -758,18 +778,34 @@ table.data td.num {
   background: var(--color-surface);
 }
 
-.chart__scroll {
-  overflow-x: auto;
-}
-
-/* The viewBox is 640 units wide: the text keeps a readable size down to the minimum
-   width, narrower screens scroll the chart sideways. */
+/* Two layouts of every chart (charts.py): the wide one, a 640 unit wide viewBox, from 40rem
+   on; the compact one, 360 units wide with larger text and fewer date ticks, below it. The
+   chart always fits the screen, so nothing (the newest measurements, the value of the last
+   point) is cut off and nothing has to be scrolled. The hidden one is display: none, so
+   assistive technology reads only one. */
 .chart__svg {
   display: block;
   width: 100%;
-  min-width: 30rem;
-  max-width: 48rem;
   height: auto;
+}
+
+.chart__svg--compact {
+  max-width: 26rem;
+}
+
+.chart__svg--wide {
+  display: none;
+  max-width: 48rem;
+}
+
+@media (min-width: 40rem) {
+  .chart__svg--compact {
+    display: none;
+  }
+
+  .chart__svg--wide {
+    display: block;
+  }
 }
 
 .chart__caption {
@@ -796,6 +832,11 @@ table.data td.num {
 
 .chart__axis-title {
   font-size: 12px;
+}
+
+/* 14 units at a scale of about 0.9 (a 390 px wide phone) are about 12.5 px. */
+.chart .chart__svg--compact text {
+  font-size: 14px;
 }
 
 .chart .chart__label {
@@ -1038,8 +1079,8 @@ table.data td.num {
   margin-bottom: var(--space-3);
 }
 
-.source-facts div,
-.legend__list div {
+.source-facts > div,
+.legend__list > div {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-3);

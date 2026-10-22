@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load animal_tags %}
-{% block title %}Hmotnost a kondice: {{ animal.name }}{% endblock %}
+{% block title %}Sledování hmotnosti a kondice: {{ animal.name }}{% endblock %}
 {% block content %}
 <nav aria-label="Drobečková navigace" class="breadcrumbs">
   <a href="{% url 'core:dashboard' %}">Přehled</a> <span aria-hidden="true">›</span>
@@ -80,9 +80,9 @@ kondice v pořádku, a nedávají žádná doporučení ke krmení. To posoudí 
 <section aria-labelledby="table-title">
   <h2 id="table-title">Tabulka měření</h2>
   <p>Tabulka obsahuje všechna měření ze zobrazeného období, tedy stejná data jako grafy.
-  {% if outside_period %}Mimo zobrazené období je dalších {{ outside_period }} měření:
-  <a href="?obdobi=vse">zobrazit vše</a>.{% endif %}</p>
-  <div class="table-wrap" role="region" aria-labelledby="table-title" tabindex="0">
+  {% if outside_sentence %}{{ outside_sentence }}: <a href="?obdobi=vse">zobrazit vše</a>.{% endif %}</p>
+  <p class="hint table-hint">Tabulku lze na úzké obrazovce posouvat do stran.</p>
+  <div class="table-wrap" role="region" aria-label="Tabulka měření, posuvná oblast" tabindex="0">
     <table class="data">
       <caption class="visually-hidden">Měření hmotnosti, BCS a MCS za {{ period.phrase }}, nejnovější nahoře</caption>
       <thead>
@@ -98,7 +98,7 @@ kondice v pořádku, a nedávají žádná doporučení ke krmení. To posoudí 
       <tbody>
         {% for measurement in rows %}
           <tr>
-            <td>{{ measurement.measured_on|short }}</td>
+            <td class="date">{{ measurement.measured_on|short }}</td>
             <td class="num">{{ measurement.weight_kg|kg }}</td>
             <td>{% if measurement.bcs %}{{ measurement.bcs }}/9{% else %}nezadáno{% endif %}</td>
             <td>{{ measurement.get_mcs_display|default:"nezadáno" }}</td>

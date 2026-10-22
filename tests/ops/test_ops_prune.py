@@ -1,7 +1,8 @@
 """Retention of deploy/backup_db.sh: newest 30 backups + first backup of each of the last 12 months.
 
 Pruning is tested without a database (``--prune-only``) on fake files with controlled names.
-The reference implementation below is written independently of the shell code.
+The reference implementation below is written independently of the shell code. Names more
+than a day ahead of the clock are not part of the rule (see the end of this file).
 """
 
 import os
@@ -238,7 +239,9 @@ def test_prune_of_an_empty_directory_is_fine(tmp_path):
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 @given(
-    offsets=st.lists(st.integers(min_value=0, max_value=1500 * 24 * 3600), min_size=1, max_size=90)
+    # 2022-11-20 + 1200 days is early March 2026: every name lies in the past (names ahead of
+    # the clock are ignored by design, see the tests below).
+    offsets=st.lists(st.integers(min_value=0, max_value=1200 * 24 * 3600), min_size=1, max_size=90)
 )
 def test_prune_matches_the_reference_for_random_names(offsets):
     base = at(2022, 11, 20, 12)
@@ -252,3 +255,79 @@ def test_prune_matches_the_reference_for_random_names(offsets):
 
         assert result.returncode == 0, result.stderr
         assert survivors(directory, stamps) == expected_survivors(stamps)
+
+
+# --- Names ahead of the clock: a set-back clock or a stray file must not wipe the history --------
+
+
+def month_of_each(year: int, first: int, last: int) -> list[str]:
+    """Three fake backups (the 1st, 10th and 20th) in every month of ``year`` from first to last."""
+    return [
+        stamp(at(year, month, day, 1)) for month in range(first, last + 1) for day in (1, 10, 20)
+    ]
+
+
+def test_a_future_dated_name_does_not_wipe_the_monthly_history(tmp_path):
+    """One file named 2099 used to become the "newest" backup: the 12 month window then
+    started in 2098 and every real monthly backup was deleted."""
+    directory = tmp_path / "backups"
+    directory.mkdir(mode=0o700)
+    real = month_of_each(2025, 11, 12) + month_of_each(2026, 1, 10)
+    future = "20991231T235959Z"
+    create_backups(directory, [*real, future])
+
+    result = prune(directory)
+
+    assert result.returncode == 0, result.stderr
+    left = survivors(directory, real)
+    assert left == expected_survivors(real)
+    for month in range(11, 13):
+        assert f"2025{month}01T010000Z" in left  # the monthly firsts of the real history
+    assert "20250" not in "".join(left)
+    assert (directory / name_of(future)).exists()
+    assert (directory / (name_of(future) + ".sha256")).exists()
+    assert "WARNING" in result.stderr and name_of(future) in result.stderr
+    assert "1 ignored" in result.stderr
+
+
+def test_many_future_names_are_neither_counted_nor_deleted(tmp_path):
+    directory = tmp_path / "backups"
+    directory.mkdir(mode=0o700)
+    real = [stamp(at(2026, 5, 1) + timedelta(days=k)) for k in range(40)]
+    future = [stamp(at(2030, 11, 1) + timedelta(days=k)) for k in range(35)]
+    create_backups(directory, real + future)
+
+    result = prune(directory)
+
+    assert result.returncode == 0, result.stderr
+    assert survivors(directory, future) == set(future)  # all 35 kept, none counted
+    assert survivors(directory, real) == expected_survivors(real)  # as if they were not there
+
+
+def test_a_name_within_the_tolerance_counts_as_a_backup(tmp_path):
+    """A clock that is a few hours off is a normal backup, not a future one."""
+    directory = tmp_path / "backups"
+    directory.mkdir(mode=0o700)
+    soon = stamp(datetime.now(UTC) + timedelta(hours=3))
+    old = [stamp(at(2026, 1, 1) + timedelta(days=k)) for k in range(35)]
+    create_backups(directory, [*old, soon])
+
+    result = prune(directory)
+
+    assert result.returncode == 0, result.stderr
+    assert "0 ignored" in result.stderr
+    assert (directory / name_of(soon)).exists()
+    assert survivors(directory, old) == expected_survivors([*old, soon]) - {soon}
+
+
+def test_a_name_just_beyond_the_tolerance_is_ignored(tmp_path):
+    directory = tmp_path / "backups"
+    directory.mkdir(mode=0o700)
+    beyond = stamp(datetime.now(UTC) + timedelta(days=2))
+    create_backups(directory, [beyond])
+
+    result = prune(directory)
+
+    assert result.returncode == 0, result.stderr
+    assert (directory / name_of(beyond)).exists()
+    assert "1 ignored" in result.stderr

@@ -1,7 +1,7 @@
 """``manage.py load_sources``: load the library of sources from ``catalog/data/sources.json``.
 
-Upsert by citation key; nothing is ever deleted (docs/13 §13.5). Safe to run repeatedly:
-the second run reports every source as unchanged.
+Upsert by citation key; nothing is ever deleted (docs/13-zdroje-v-aplikaci.md §13.5). Safe to
+run repeatedly: the second run reports every source as unchanged.
 """
 
 from pathlib import Path

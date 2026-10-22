@@ -37,6 +37,11 @@ NBSP: Final = "\N{NO-BREAK SPACE}"
 _CONTEXT: Final = Context(prec=28, rounding=ROUND_HALF_EVEN)
 
 CHANGE_DISCLAIMER: Final = "Zda je změna žádoucí, posoudí veterinární lékař."
+# The line joins the recorded measurements; between two of them nothing is recorded, however
+# far apart they are. Said in the caption and in the description of the weight chart.
+GAP_SENTENCE: Final = "Čára spojuje zapsaná měření; mezi nimi nejsou zapsaná žádná data."
+# More scores than this are summarised in the description instead of being listed one by one.
+MAX_LISTED_SCORES: Final = 12
 
 # --- Periods ----------------------------------------------------------------------------------
 
@@ -86,7 +91,12 @@ class Measured(Protocol):
 
 @dataclass(frozen=True)
 class Frame:
-    """Size of the SVG viewBox and the plot area inside it (pixels)."""
+    """Size of the SVG viewBox and the plot area inside it (pixels).
+
+    ``compact`` marks the layout for narrow screens (docs/12 §12.11): fewer date ticks, the
+    value of the last point right-aligned at the edge and the band label on two lines, so that
+    the whole chart fits a phone without sideways scrolling.
+    """
 
     width: int
     height: int
@@ -94,6 +104,9 @@ class Frame:
     top: float
     right: float
     bottom: float
+    title_x: float = 14.0  # horizontal position of the rotated y axis title
+    max_x_ticks: int = 7
+    compact: bool = False
 
     @property
     def plot_width(self) -> float:
@@ -103,11 +116,6 @@ class Frame:
     def center_y(self) -> float:
         """Vertical middle of the plot area (where the rotated y axis title goes)."""
         return (self.top + self.bottom) / 2
-
-    @property
-    def title_x(self) -> float:
-        """Horizontal position of the rotated y axis title."""
-        return 14.0
 
     @property
     def y_label_x(self) -> float:
@@ -131,6 +139,32 @@ class Frame:
 # the same date is at the same x in both.
 WEIGHT_FRAME: Final = Frame(width=640, height=300, left=64.0, top=24.0, right=528.0, bottom=252.0)
 BCS_FRAME: Final = Frame(width=640, height=260, left=64.0, top=24.0, right=528.0, bottom=212.0)
+# The same charts for screens narrower than 40rem: a 360 unit wide viewBox shows 14 px text at
+# about 12 px on a 390 px wide phone, where the 640 unit wide one would show it at 7 to 8 px or
+# have to scroll sideways (and hide the newest measurements). 72 units on the right hold the
+# value of the last point and the label of the BCS band.
+WEIGHT_FRAME_COMPACT: Final = Frame(
+    width=360,
+    height=300,
+    left=56.0,
+    top=24.0,
+    right=288.0,
+    bottom=252.0,
+    title_x=12.0,
+    max_x_ticks=3,
+    compact=True,
+)
+BCS_FRAME_COMPACT: Final = Frame(
+    width=360,
+    height=260,
+    left=56.0,
+    top=24.0,
+    right=288.0,
+    bottom=212.0,
+    title_x=12.0,
+    max_x_ticks=3,
+    compact=True,
+)
 TEXT_BASELINE_SHIFT: Final = 4.5  # half the cap height of the 13 px chart text
 
 CIRCLE: Final = "circle"
@@ -140,6 +174,7 @@ SHAPES: Final = {Assessor.OWNER.value: CIRCLE, Assessor.VET.value: DIAMOND}
 DIAMOND_RADIUS: Final = 7.0
 
 MAX_X_TICKS: Final = 7
+COMPACT_LABEL_MARGIN: Final = 4.0  # gap between a right-aligned label and the viewBox edge
 
 
 @dataclass(frozen=True)
@@ -197,13 +232,19 @@ class Label:
 
 @dataclass(frozen=True)
 class TargetLine:
-    """Horizontal reference line for the target weight, named by its status."""
+    """Horizontal reference line for the target weight, named by its status.
+
+    ``label`` is the full text ("cílová hmotnost (orientační) 19 kg"); ``label_lines`` is how
+    it is drawn: one line, or on the compact layout two (the name, then the weight), because
+    the whole text is wider than a phone's plot area.
+    """
 
     weight_kg: Decimal
     status: str
     y: float
     name: str  # "cílová hmotnost (orientační)" or "cílová hmotnost (potvrzeno veterinářem)"
     label: Label
+    label_lines: tuple[Label, ...]
 
 
 @dataclass(frozen=True)
@@ -263,11 +304,16 @@ class WeightChart:
 
 @dataclass(frozen=True)
 class BcsBand:
-    """Shaded band of the scores 4 and 5 (docs/05 §5.3); spans the half-steps around them."""
+    """Shaded band of the scores 4 and 5 (docs/05 §5.3); spans the half-steps around them.
+
+    ``label`` is the full text ("pásmo 4–5 z 9", also used in the description and the legend);
+    ``label_lines`` is how it is drawn: one line, or two on the compact layout.
+    """
 
     top: float
     bottom: float
     label: Label
+    label_lines: tuple[Label, ...]
 
     @property
     def height(self) -> float:
@@ -308,6 +354,8 @@ class Tracking:
     measurements: tuple[Measured, ...]  # in the period, oldest first
     weight: WeightChart
     bcs: BcsChart
+    weight_compact: WeightChart  # the same data laid out for narrow screens
+    bcs_compact: BcsChart
 
 
 # --- Formatting -----------------------------------------------------------------------------------
@@ -366,6 +414,21 @@ def nice_ticks(low: Decimal, high: Decimal, intervals: int = 4) -> tuple[Decimal
         return tuple(first + step * index for index in range(count + 1))
 
 
+def widen_to_min_span(low: Decimal, high: Decimal) -> tuple[Decimal, Decimal]:
+    """Return ``(low, high)`` widened around its middle to the minimum span of a weight axis.
+
+    The span is at least :data:`MIN_AXIS_SPAN_KG` or :data:`MIN_AXIS_SPAN_SHARE` of the
+    highest weight, whichever is larger, so that a difference of a few grams never fills the
+    whole height of a chart (the main chart and the sparkline alike).
+    """
+    with localcontext(_CONTEXT):
+        min_span = max(MIN_AXIS_SPAN_KG, high * MIN_AXIS_SPAN_SHARE)
+        if high - low < min_span:
+            middle = (low + high) / 2
+            return middle - min_span / 2, middle + min_span / 2
+    return low, high
+
+
 def weight_axis(values: Iterable[Decimal]) -> tuple[Decimal, ...]:
     """Return y ticks for a weight axis that shows all ``values`` with room around them.
 
@@ -380,11 +443,7 @@ def weight_axis(values: Iterable[Decimal]) -> tuple[Decimal, ...]:
     if not values:
         raise ValueError("weight_axis needs at least one value")
     with localcontext(_CONTEXT):
-        low, high = min(values), max(values)
-        min_span = max(MIN_AXIS_SPAN_KG, high * MIN_AXIS_SPAN_SHARE)
-        if high - low < min_span:
-            middle = (low + high) / 2
-            low, high = middle - min_span / 2, middle + min_span / 2
+        low, high = widen_to_min_span(min(values), max(values))
         padding = (high - low) * AXIS_PADDING
         low = max(low - padding, Decimal(0))
         high += padding
@@ -410,37 +469,36 @@ _MONTHS: Final = (
 MAX_YEAR: Final = 9999
 
 
-def _day_ticks(start: date, end: date, step: int) -> list[date]:
-    """Days in ``[start, end]`` on a fixed grid; a step of 7 falls on Mondays."""
+def _day_grid(start: date, end: date, step: int) -> range:
+    """Ordinals of the days in ``[start, end]`` on a fixed grid; a step of 7 falls on Mondays.
+
+    A ``range``: its length is known without visiting a day, so a range of centuries costs
+    nothing until a grid with few enough ticks is chosen.
+    """
     first = start.toordinal()
     first += -(first - 1) % step
-    return [date.fromordinal(day) for day in range(first, end.toordinal() + 1, step)]
+    return range(first, end.toordinal() + 1, step)
 
 
-def _month_ticks(start: date, end: date, step: int) -> list[date]:
-    """Firsts of months in ``[start, end]``, every ``step`` months counted from January."""
-    index = start.year * 12 + start.month - 1 + (1 if start.day > 1 else 0)
-    index += -index % step
-    ticks = []
-    while True:
-        year, month0 = divmod(index, 12)
-        if year > MAX_YEAR:
-            break
-        tick = date(year, month0 + 1, 1)
-        if tick > end:
-            break
-        ticks.append(tick)
-        index += step
-    return ticks
+def _month_grid(start: date, end: date, step: int) -> range:
+    """Month numbers (``year * 12 + month - 1``) of the firsts of months in ``[start, end]``,
+    every ``step`` months counted from January; never beyond :data:`MAX_YEAR`."""
+    first = start.year * 12 + start.month - 1 + (1 if start.day > 1 else 0)
+    first += -first % step
+    last = min(end.year * 12 + end.month - 1, MAX_YEAR * 12 + 11)
+    return range(first, last + 1, step)
 
 
-def date_ticks(start: date, end: date) -> tuple[tuple[date, str], ...]:
+def date_ticks(
+    start: date, end: date, max_ticks: int = MAX_X_TICKS
+) -> tuple[tuple[date, str], ...]:
     """Return ``(date, label)`` ticks for a date axis from ``start`` to ``end``.
 
-    The finest unit that gives at most :data:`MAX_X_TICKS` ticks wins: days, Mondays,
-    every second Monday, then firsts of months (every 1, 2, 3, 6, 12 … months) and
-    years. Day ticks are labelled ``"21. 10."``, month ticks ``"říj 2026"``, year ticks
-    ``"2026"``. Ticks lie inside ``[start, end]`` and increase strictly.
+    The finest unit that gives at most ``max_ticks`` ticks wins: days, Mondays, every second
+    Monday, then firsts of months (every 1, 2, 3, 6, 12 … months) and years. Day ticks are
+    labelled ``"21. 10."``, month ticks ``"říj 2026"``, year ticks ``"2026"``. Ticks lie
+    inside ``[start, end]`` and increase strictly. The choice is made from the length of
+    each candidate grid, so a very long range costs the same as a short one.
 
     Raises:
         ValueError: ``end`` is before ``start``.
@@ -448,13 +506,19 @@ def date_ticks(start: date, end: date) -> tuple[tuple[date, str], ...]:
     if end < start:
         raise ValueError("date_ticks needs start <= end")
     candidates = [("day", step) for step in _DAY_STEPS] + [("month", s) for s in _MONTH_STEPS]
-    unit, step, ticks = "", 0, []
+    unit, step = candidates[-1]
+    grid = _month_grid(start, end, step)
     for unit, step in candidates:
-        ticks = (_day_ticks if unit == "day" else _month_ticks)(start, end, step)
-        if len(ticks) <= MAX_X_TICKS:
+        grid = (_day_grid if unit == "day" else _month_grid)(start, end, step)
+        if len(grid) <= max_ticks:
             break
     if unit == "day":
+        ticks = [date.fromordinal(ordinal) for ordinal in grid]
         return tuple((tick, f"{tick.day}. {tick.month}.") for tick in ticks)
+    ticks = []
+    for index in grid:
+        year, month0 = divmod(index, 12)
+        ticks.append(date(year, month0 + 1, 1))
     if step % 12 == 0:
         return tuple((tick, str(tick.year)) for tick in ticks)
     return tuple((tick, f"{_MONTHS[tick.month - 1]} {tick.year}") for tick in ticks)
@@ -478,8 +542,24 @@ def _x(frame: Frame, start: date, end: date, day: date) -> float:
 def _x_ticks(frame: Frame, start: date, end: date) -> tuple[XTick, ...]:
     return tuple(
         XTick(value=day, x=_x(frame, start, end, day), label=label)
-        for day, label in date_ticks(start, end)
+        for day, label in date_ticks(start, end, frame.max_x_ticks)
     )
+
+
+def _require_inside(measurements: Sequence[Measured], start: date, end: date) -> None:
+    """Refuse a measurement outside ``[start, end]``: it would get a coordinate outside the plot.
+
+    Raises:
+        ValueError: ``start`` is not before ``end``, or a measurement lies outside the range.
+    """
+    if not start < end:
+        raise ValueError("a chart needs start < end")
+    outside = [m.measured_on for m in measurements if not start <= m.measured_on <= end]
+    if outside:
+        raise ValueError(
+            f"{len(outside)} measurement(s) lie outside {start}..{end} (first: {outside[0]}): "
+            "pass only the measurements of the period (select_period)"
+        )
 
 
 # --- Period selection -----------------------------------------------------------------------------
@@ -566,6 +646,21 @@ def change_sentence(summary: WeightSummary) -> str | None:
     return f"Změna hmotnosti za zvolené období: {figures}. {CHANGE_DISCLAIMER}"
 
 
+def outside_period_sentence(count: int) -> str | None:
+    """Return the sentence about measurements outside the shown period, or ``None`` for none.
+
+    Czech counted noun: ``1`` → "Mimo zobrazené období je další 1 měření", ``2``–``4`` →
+    "… jsou další 3 měření", ``5`` and more → "… je dalších 5 měření".
+    """
+    if count <= 0:
+        return None
+    if count == 1:
+        return "Mimo zobrazené období je další 1 měření"
+    if count <= 4:
+        return f"Mimo zobrazené období jsou další {count} měření"
+    return f"Mimo zobrazené období je dalších {count} měření"
+
+
 def _shapes_sentence(has_owner: bool, has_vet: bool) -> str:
     """Say which marker shape means which assessor, for the shapes that are drawn."""
     owner = "kolečka značí měření zapsaná majitelem"
@@ -601,6 +696,8 @@ def describe_weight_chart(chart: WeightChart) -> str:
             f"poslední {kg_text(summary.last_kg)} dne {short_date(summary.last_on)}."
         )
         parts.append(change_sentence(summary) or "")
+    if count >= 2:
+        parts.append(GAP_SENTENCE)
     if chart.target is not None:
         parts.append(f"Čárkovaná čára: {chart.target.name} {kg_text(chart.target.weight_kg)}.")
     parts.append(_shapes_sentence(chart.has_owner, chart.has_vet))
@@ -618,9 +715,19 @@ def describe_bcs_chart(chart: BcsChart) -> str:
             f"{count} {plural(count, 'hodnocení', 'hodnocení', 'hodnocení')}."
         )
     ]
-    if count:
+    if 0 < count <= MAX_LISTED_SCORES:
         scores = ", ".join(f"{short_date(p.measured_on)}: {p.value}/9" for p in chart.points)
         parts.append(f"Zapsaná skóre: {scores}.")
+    elif count > MAX_LISTED_SCORES:
+        # A screen reader reads the whole description: with daily weighing a list of every
+        # score would be thousands of characters. The table below the chart has them all.
+        first, last = chart.points[0], chart.points[-1]
+        values = [p.value for p in chart.points]
+        parts.append(
+            f"První skóre {first.value}/9 dne {short_date(first.measured_on)}, "
+            f"poslední {last.value}/9 dne {short_date(last.measured_on)}; "
+            f"nejnižší zapsané skóre {min(values)}/9, nejvyšší {max(values)}/9."
+        )
     parts.append(f"Podkladem je vyznačeno {chart.band.label.text}, jen jako vodítko na škále.")
     parts.append(_shapes_sentence(chart.has_owner, chart.has_vet))
     parts.append("Stejná data jsou v tabulce pod grafem.")
@@ -642,15 +749,19 @@ def _target_line(
         raise ValueError(f"Unknown target weight status: {status!r}")
     y = _scale(weight_kg, low, high, frame.bottom, frame.top)
     name = f"cílová hmotnost ({TARGET_STATUS_TEXT[status]})"
+    x = frame.left + 6
     # The text goes above the line, or below it when there is no room under the plot top.
     text_y = y - 6 if y - 6 - 13 >= 1 else y + 17
-    return TargetLine(
-        weight_kg,
-        status,
-        y,
-        name,
-        Label(frame.left + 6, text_y, f"{name} {kg_text(weight_kg)}", "start"),
-    )
+    label = Label(x, text_y, f"{name} {kg_text(weight_kg)}", "start")
+    lines = (label,)
+    if frame.compact:  # two lines, the weight under the name
+        above = y - 6 - 17 - 13 >= 1
+        first_y = y - 6 - 17 if above else y + 17
+        lines = (
+            Label(x, first_y, name, "start"),
+            Label(x, first_y + 17, kg_text(weight_kg), "start"),
+        )
+    return TargetLine(weight_kg, status, y, name, label, lines)
 
 
 def _point(
@@ -689,12 +800,12 @@ def build_weight_chart(
     measurement and no target weight the y axis is empty.
 
     Raises:
-        ValueError: a target weight without a known status.
+        ValueError: a target weight without a known status, ``start`` not before ``end``, or a
+            measurement outside ``[start, end]``.
     """
     if target_weight_kg is not None and target_status not in TARGET_STATUS_TEXT:
         raise ValueError(f"Unknown target weight status: {target_status!r}")
-    if not start < end:
-        raise ValueError("build_weight_chart needs start < end")
+    _require_inside(measurements, start, end)
     values = [m.weight_kg for m in measurements]
     if target_weight_kg is not None:
         values.append(target_weight_kg)
@@ -715,9 +826,11 @@ def build_weight_chart(
     end_label = None
     if points:
         last = points[-1]  # its value stands to the right of the last point
-        end_label = Label(
-            last.x + 10, round(last.y + TEXT_BASELINE_SHIFT, 2), kg_text(last.value), "start"
-        )
+        y = round(last.y + TEXT_BASELINE_SHIFT, 2)
+        if frame.compact:  # the margin is narrow: right-aligned at the edge of the viewBox
+            end_label = Label(frame.width - COMPACT_LABEL_MARGIN, y, kg_text(last.value), "end")
+        else:
+            end_label = Label(last.x + 10, y, kg_text(last.value), "start")
     return WeightChart(
         period=period,
         start=start,
@@ -764,7 +877,11 @@ def build_bcs_chart(
     whole nine-point scale; the band of the scores 4 and 5 is shaded and labelled.
 
     Output: :class:`BcsChart`; ``drawable`` is false below two points.
+
+    Raises:
+        ValueError: ``start`` not before ``end``, or a measurement outside ``[start, end]``.
     """
+    _require_inside(measurements, start, end)
 
     def y_of(score: Decimal) -> float:
         return _scale(score, BCS_AXIS_LOW, BCS_AXIS_HIGH, frame.bottom, frame.top)
@@ -778,11 +895,15 @@ def build_bcs_chart(
     band_bottom = y_of(Decimal(BCS_BAND[0]) - Decimal("0.5"))
     # The label stands in the right margin, so it never covers a point.
     middle = (band_top + band_bottom) / 2
-    band = BcsBand(
-        band_top,
-        band_bottom,
-        Label(frame.right + 8, round(middle + TEXT_BASELINE_SHIFT, 2), BCS_BAND_LABEL, "start"),
-    )
+    label = Label(frame.right + 8, round(middle + TEXT_BASELINE_SHIFT, 2), BCS_BAND_LABEL, "start")
+    lines = (label,)
+    if frame.compact:  # the margin holds seven characters: two lines, one above the other
+        first, second = BCS_BAND_LABEL.split(" ", 1)
+        lines = (
+            Label(frame.right + 8, round(middle - 8 + TEXT_BASELINE_SHIFT, 2), first, "start"),
+            Label(frame.right + 8, round(middle + 10 + TEXT_BASELINE_SHIFT, 2), second, "start"),
+        )
+    band = BcsBand(band_top, band_bottom, label, lines)
     scores = range(BCS_MIN, BCS_MAX + 1)
     return BcsChart(
         period=period,
@@ -804,7 +925,7 @@ def build_tracking(
     target_weight_kg: Decimal | None = None,
     target_status: str | None = None,
 ) -> Tracking:
-    """Build both charts for ``period``.
+    """Build both charts for ``period``, each in the wide and in the compact layout.
 
     Inputs: the animal's measurements in recording order (oldest recorded first), the
     period, today's date (never read from the clock here) and optionally the target
@@ -814,20 +935,18 @@ def build_tracking(
         ValueError: a target weight without a known status.
     """
     chosen, start, end = select_period(measurements, period, today)
+    target = {"target_weight_kg": target_weight_kg, "target_status": target_status}
     return Tracking(
         period=period,
         start=start,
         end=end,
         measurements=chosen,
-        weight=build_weight_chart(
-            chosen,
-            period,
-            start,
-            end,
-            target_weight_kg=target_weight_kg,
-            target_status=target_status,
-        ),
+        weight=build_weight_chart(chosen, period, start, end, **target),
         bcs=build_bcs_chart(chosen, period, start, end),
+        weight_compact=build_weight_chart(
+            chosen, period, start, end, frame=WEIGHT_FRAME_COMPACT, **target
+        ),
+        bcs_compact=build_bcs_chart(chosen, period, start, end, frame=BCS_FRAME_COMPACT),
     )
 
 
@@ -858,8 +977,10 @@ def build_sparkline(measurements: Iterable[Measured]) -> Sparkline | None:
     """Return the sparkline of ``measurements``, or ``None`` below two measurements.
 
     Inputs: measurements in recording order (the oldest recorded first). The x axis runs
-    from the first to the last date; the y axis from the lowest to the highest weight (a
-    flat line is drawn in the middle). Measurements of one day only are spread evenly.
+    from the first to the last date; the y axis from the lowest to the highest weight,
+    widened to the minimum span of the weight axis (:func:`widen_to_min_span`), so a flat
+    series is drawn in the middle and a change of grams is not magnified. Measurements of
+    one day only are spread evenly.
 
     Output: :class:`Sparkline` whose ``text`` reads, for example, ``"poslední hmotnost
     21 kg, změna −0,4 kg za 33 dní"`` (change = last minus first weight).
@@ -870,7 +991,9 @@ def build_sparkline(measurements: Iterable[Measured]) -> Sparkline | None:
     first, last = ordered[0], ordered[-1]
     days = (last.measured_on - first.measured_on).days
     weights = [m.weight_kg for m in ordered]
-    low, high = min(weights), max(weights)
+    # The same minimum span as the weight axis: a difference of a few grams stays a flat line
+    # instead of becoming a full-height slope on the card.
+    low, high = widen_to_min_span(min(weights), max(weights))
     inner_width = SPARK_WIDTH - 2 * SPARK_PADDING
     coordinates = []
     for index, m in enumerate(ordered):
@@ -878,10 +1001,7 @@ def build_sparkline(measurements: Iterable[Measured]) -> Sparkline | None:
             share = index / (len(ordered) - 1)
         else:
             share = (m.measured_on - first.measured_on).days / days
-        if low == high:
-            y = SPARK_HEIGHT / 2
-        else:
-            y = _scale(m.weight_kg, low, high, SPARK_HEIGHT - SPARK_PADDING, SPARK_PADDING)
+        y = _scale(m.weight_kg, low, high, SPARK_HEIGHT - SPARK_PADDING, SPARK_PADDING)
         coordinates.append((round(SPARK_PADDING + share * inner_width, 2), round(y, 2)))
     change = last.weight_kg - first.weight_kg
     span = f"za {days} {plural(days, 'den', 'dny', 'dní')}" if days else "(měření téhož dne)"

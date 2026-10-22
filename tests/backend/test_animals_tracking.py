@@ -10,6 +10,8 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -33,11 +35,20 @@ def days_ago(days: int):
     return TODAY - timedelta(days=days)
 
 
-def svgs(content: str) -> list[ET.Element]:
-    """The chart SVGs of a page (``role="img"``) parsed as XML; legend icons are skipped."""
+def all_svgs(content: str) -> list[ET.Element]:
+    """All chart SVGs of a page (``role="img"``) parsed as XML; legend icons are skipped.
+
+    Every chart is in the page twice: the wide layout and the compact one for narrow screens
+    (CSS shows one of them).
+    """
     found = re.findall(r"<svg\b.*?</svg>", content, flags=re.DOTALL)
     parsed = [ET.fromstring(fragment) for fragment in found]
     return [svg for svg in parsed if svg.get("role") == "img"]
+
+
+def svgs(content: str, layout: str = "wide") -> list[ET.Element]:
+    """The chart SVGs of one layout (``wide`` or ``compact``): weight chart, then BCS chart."""
+    return [s for s in all_svgs(content) if f"chart__svg--{layout}" in s.get("class", "")]
 
 
 def flat(content: str) -> str:
@@ -166,7 +177,7 @@ def test_invalid_period_falls_back_to_90_days_without_an_error(client, user, fil
 def test_period_selects_the_measurements_of_chart_and_table(client, user, filled, param, days):
     client.force_login(user)
     content = client.get(url_of(filled, param)).content.decode()
-    rows = re.findall(r"<tr>\s*<td>(\d+\. \d+\. \d+)</td>", content)
+    rows = re.findall(r'<tr>\s*<td class="date">(\d+\. \d+\. \d+)</td>', content)
     assert rows == [services.short_date(days_ago(d)) for d in days]  # newest first
     charts_found = svgs(content)
     if len(days) >= 2:
@@ -179,9 +190,9 @@ def test_period_selects_the_measurements_of_chart_and_table(client, user, filled
 def test_table_notes_measurements_outside_the_period(client, user, filled):
     client.force_login(user)
     content = client.get(url_of(filled, "30")).content.decode()
-    assert "Mimo zobrazené období je dalších 3 měření" in content
+    assert "Mimo zobrazené období jsou další 3 měření" in content
     assert '<a href="?obdobi=vse">zobrazit vše</a>' in content
-    assert "dalších" not in client.get(url_of(filled, "vse")).content.decode()
+    assert "další" not in client.get(url_of(filled, "vse")).content.decode()
 
 
 # --- SVG and ARIA -------------------------------------------------------------------------------
@@ -193,10 +204,12 @@ def test_weight_chart_svg_is_an_image_with_title_and_description(client, user, f
     weight, bcs = svgs(content)
 
     assert weight.get("role") == "img"
-    assert weight.get("aria-labelledby") == "weight-svg-title weight-svg-desc"
+    # The name is the short title only; the long summary is the description, read once.
+    assert weight.get("aria-labelledby") == "weight-svg-title-wide"
+    assert weight.get("aria-describedby") == "weight-svg-desc-wide"
     assert weight.get("focusable") == "false"
     title, desc = weight.find("title"), weight.find("desc")
-    assert (title.get("id"), desc.get("id")) == ("weight-svg-title", "weight-svg-desc")
+    assert (title.get("id"), desc.get("id")) == ("weight-svg-title-wide", "weight-svg-desc-wide")
     assert title.text == "Graf hmotnosti zvířete Rex za poslední rok"
     # The description tells the story in words: period, count, first and last, change.
     assert "3 měření" in desc.text
@@ -206,19 +219,78 @@ def test_weight_chart_svg_is_an_image_with_title_and_description(client, user, f
     assert "Zda je změna žádoucí, posoudí veterinární lékař." in desc.text
     assert "kosočtverce značí měření zapsaná veterinárním lékařem" in desc.text
 
-    assert bcs.get("aria-labelledby") == "bcs-svg-title bcs-svg-desc"
+    assert bcs.get("aria-labelledby") == "bcs-svg-title-wide"
+    assert bcs.get("aria-describedby") == "bcs-svg-desc-wide"
     assert text_of(bcs, "title") == "Graf BCS zvířete Rex za poslední rok"
     assert "pásmo 4–5 z 9" in text_of(bcs, "desc")
 
 
-def test_charts_are_in_figures_in_a_focusable_scroll_region(client, user, filled):
+def test_charts_are_in_figures_and_need_no_scrolling(client, user, filled):
+    """The chart always fits the screen (wide or compact layout), so there is no scrolling
+    region around it (it used to hide the newest measurements on a phone)."""
     client.force_login(user)
     content = client.get(url_of(filled)).content.decode()
     assert content.count('<figure class="chart">') == 2
     assert content.count("<figcaption") == 2
     for heading in ("weight-title", "bcs-title"):
         assert f'<h2 id="{heading}">' in content
-        assert f'role="region" aria-labelledby="{heading}" tabindex="0"' in content
+    assert "chart__scroll" not in content
+    assert 'role="region"' not in content.split("<figure", 1)[1].split("</figure>", 1)[0]
+
+
+def test_every_chart_is_in_the_page_in_two_layouts_with_unique_ids(client, user, filled):
+    client.force_login(user)
+    content = client.get(url_of(filled)).content.decode()
+
+    assert [s.get("class").split()[-1] for s in all_svgs(content)] == [
+        "chart__svg--wide",
+        "chart__svg--compact",
+        "chart__svg--wide",
+        "chart__svg--compact",
+    ]
+    ids = re.findall(r'\bid="([^"]+)"', content)
+    assert len(ids) == len(set(ids)), "an id appears twice"
+    assert {"weight-svg-title-compact", "bcs-svg-desc-compact"} <= set(ids)
+
+
+def test_compact_layout_fits_a_phone(client, user, filled):
+    """A 360 unit wide viewBox, drawn in full: every coordinate inside the viewBox, the value
+    of the last point and the band label right-aligned in the margin, at most 3 date ticks."""
+    client.force_login(user)
+    weight, bcs = svgs(client.get(url_of(filled, "vse")).content.decode(), "compact")
+
+    assert weight.get("viewBox") == "0 0 360 300" and bcs.get("viewBox") == "0 0 360 260"
+    for svg in (weight, bcs):
+        width = float(svg.get("viewBox").split()[2])
+        for element in svg.iter():
+            for name in ("x", "x1", "x2", "cx"):
+                if element.get(name) is not None:
+                    assert 0 <= float(element.get(name)) <= width, (element.tag, name)
+            for vertex in (element.get("points") or "").split():
+                assert 0 <= float(vertex.split(",")[0]) <= width
+        ticks = [
+            e
+            for e in svg.iter("text")
+            if e.get("class") == "chart__tick" and e.get("text-anchor") == "middle"
+        ]
+        assert 1 <= len(ticks) <= 3
+    end = [e for e in weight.iter("text") if e.get("class") == "chart__label"]
+    assert [e.get("text-anchor") for e in end] == ["end"]
+    assert float(end[0].get("x")) <= 360
+    band = [e.text for e in bcs.iter("text") if "chart__label--band" in e.get("class", "")]
+    assert band == ["pásmo", "4–5 z 9"]  # two lines, the margin holds seven characters
+
+
+def test_stylesheet_never_hides_a_chart_behind_a_scrollbar():
+    css = (BASE_DIR / "static" / "css" / "app.css").read_text("utf-8")
+
+    assert "chart__scroll" not in css
+    block = re.search(r"\.chart__svg \{.*?\}", css, flags=re.DOTALL).group(0)
+    assert "min-width" not in block
+    assert re.search(r"\.chart__svg--wide \{\s*display: none;", css)
+    assert re.search(
+        r"@media \(min-width: 40rem\) \{\s*\.chart__svg--compact \{\s*display: none;", css
+    )
 
 
 def test_heading_order_is_h1_h2_h3(client, user, filled):
@@ -258,8 +330,9 @@ def test_polyline_and_points_have_one_vertex_per_measurement(client, user, fille
     client.force_login(user)
     content = client.get(url_of(filled, "vse")).content.decode()
     weight, bcs = svgs(content)
+    compact = svgs(content, "compact")[0]
     vertices = next(weight.iter("polyline")).get("points").split()
-    assert len(vertices) == 4
+    assert len(vertices) == 4 == len(next(compact.iter("polyline")).get("points").split())
     marks = [e for e in weight.iter() if "chart__point" in (e.get("class") or "")]
     assert len(marks) == 4
     # BCS: 3 of the 4 measurements have a score; points only, no connecting line.
@@ -390,7 +463,10 @@ def test_bcs_chart_has_the_labelled_band_and_the_whole_scale(client, user, fille
         if e.get("class") == "chart__tick" and e.get("text-anchor") == "end"
     ]
     assert scale == [str(n) for n in range(1, 10)]
-    assert "Pásmo 4–5 z 9 je jen vodítko na škále, ne hodnocení zdraví zvířete." in content
+    assert (
+        "Pásmo 4–5 z 9 vyznačuje střed devítibodové škály. Je jen vodítko na škále, ne hodnocení "
+        "zdraví zvířete ani doporučený rozsah."
+    ) in flat(content)
     assert "ideál" not in content.lower()
     assert "healthy" not in content.lower()
 
@@ -422,7 +498,7 @@ def test_table_has_every_column_and_every_value(client, user, make_animal, make_
     ):
         assert f'<th scope="col">{column}</th>' in content
     assert '<caption class="visually-hidden">' in content
-    assert f"<td>{services.short_date(days_ago(8))}</td>" in content
+    assert f'<td class="date">{services.short_date(days_ago(8))}</td>' in content
     assert f'<td class="num">12,5{NBSP}kg</td>' in content
     assert "<td>6/9</td>" in content
     assert "<td>mírná ztráta svalové hmoty</td>" in content
@@ -430,7 +506,7 @@ def test_table_has_every_column_and_every_value(client, user, make_animal, make_
     assert "<td>majitel</td>" in content
     assert content.count("nezadáno") == 2  # BCS and MCS of the newer measurement
     # Newest first, like the table on the detail page.
-    rows = re.findall(r"<tr>\s*<td>(\d+\. \d+\. \d+)</td>", content)
+    rows = re.findall(r'<tr>\s*<td class="date">(\d+\. \d+\. \d+)</td>', content)
     assert rows == [services.short_date(days_ago(1)), services.short_date(days_ago(8))]
 
 
@@ -442,7 +518,8 @@ def test_table_is_present_in_every_state(client, user, animal, make_measurement)
         assert "V zobrazeném období není zapsané žádné měření." in content
     make_measurement(animal, measured_on=days_ago(100))
     content = client.get(url_of(animal, "30")).content.decode()
-    assert '<table class="data">' in content and "dalších 1 měření" in content
+    assert '<table class="data">' in content
+    assert "Mimo zobrazené období je další 1 měření" in content
 
 
 def test_vet_email_in_the_table_follows_data_minimisation(
@@ -475,7 +552,7 @@ def add_link(animal) -> str:
 def test_no_measurement_at_all(client, user, animal):
     client.force_login(user)
     content = client.get(url_of(animal)).content.decode()
-    assert not svgs(content)
+    assert not all_svgs(content)
     text = flat(content)
     assert "Zatím není zapsané žádné měření." in text
     assert "Graf hmotnosti se zobrazí, jakmile budou zapsaná alespoň dvě měření." in text
@@ -487,7 +564,7 @@ def test_one_measurement_in_the_period(client, user, animal, make_measurement):
     make_measurement(animal, measured_on=days_ago(4), weight_kg=Decimal("20.5"), bcs=5)
     client.force_login(user)
     content = client.get(url_of(animal)).content.decode()
-    assert not svgs(content)
+    assert not all_svgs(content)
     text = flat(content)
     day = services.short_date(days_ago(4))
     assert f"je jen jedno měření: 20,5{NBSP}kg dne {day}." in text
@@ -501,11 +578,12 @@ def test_measurements_only_outside_the_period(client, user, animal, make_measure
     make_measurement(animal, measured_on=days_ago(180))
     client.force_login(user)
     content = client.get(url_of(animal, "30")).content.decode()
-    assert not svgs(content)
+    assert not all_svgs(content)
     assert "není zapsané žádné měření. Zvolte delší období nebo zapište nové měření." in flat(
         content
     )
-    assert len(svgs(client.get(url_of(animal, "vse")).content.decode())) == 1  # no scores: no BCS
+    # No scores: only the weight chart, in both layouts.
+    assert len(all_svgs(client.get(url_of(animal, "vse")).content.decode())) == 2
 
 
 def test_weight_chart_without_scores_leaves_only_the_bcs_empty_state(
@@ -515,8 +593,9 @@ def test_weight_chart_without_scores_leaves_only_the_bcs_empty_state(
     make_measurement(animal, measured_on=days_ago(2))
     client.force_login(user)
     content = client.get(url_of(animal)).content.decode()
-    charts_found = svgs(content)
-    assert len(charts_found) == 1 and charts_found[0].get("aria-labelledby").startswith("weight")
+    charts_found = all_svgs(content)
+    assert len(charts_found) == 2  # the weight chart in two layouts
+    assert all(c.get("aria-labelledby").startswith("weight") for c in charts_found)
     assert "není zapsané žádné hodnocení BCS" in flat(content)
 
 
@@ -524,7 +603,7 @@ def test_bcs_chart_appears_with_two_scores(client, user, animal, make_measuremen
     make_measurement(animal, measured_on=days_ago(9), bcs=5)
     make_measurement(animal, measured_on=days_ago(2), bcs=6)
     client.force_login(user)
-    assert len(svgs(client.get(url_of(animal)).content.decode())) == 2
+    assert len(svgs(client.get(url_of(animal)).content.decode())) == 2  # weight and BCS
 
 
 def test_shared_vet_gets_the_add_measurement_link_too(client, user, vet_user, animal):
@@ -552,7 +631,7 @@ def test_animal_name_is_escaped_everywhere_including_the_svg_title(
     assert "<script" not in content and "<img" not in content
     assert "onerror=alert" not in content.replace("&lt;img src=x onerror=alert(2)&gt;", "")
     escaped = "&lt;script&gt;alert(1)&lt;/script&gt;&quot;&#x27;&amp;"
-    assert content.count(escaped) >= 5  # title tag, breadcrumb, lead and both SVG titles
+    assert content.count(escaped) >= 5  # title tag, breadcrumb, lead and the SVG titles
     weight, bcs = svgs(content)  # the SVGs are still well-formed XML
     assert text_of(weight, "title") == f"Graf hmotnosti zvířete {EVIL} za posledních 90 dní"
     assert text_of(bcs, "title") == f"Graf BCS zvířete {EVIL} za posledních 90 dní"
@@ -612,8 +691,10 @@ def test_detail_page_links_to_the_tracking_page(client, user, vet_user, filled):
     for viewer in (user, vet_user):
         client.force_login(viewer)
         content = client.get(filled.get_absolute_url()).content.decode()
-        assert content.count(f'href="{url_of(filled)}"') == 2
-        assert "Graf hmotnosti a kondice" in content
+        # One link, not two controls with different words for the same page.
+        assert content.count(f'href="{url_of(filled)}"') == 1
+        assert ">Sledování hmotnosti a kondice</a>" in content
+        assert "Graf hmotnosti a kondice" not in content and "Zobrazit grafy" not in content
 
 
 def test_detail_table_still_shows_the_assessor_with_the_same_rules(
@@ -643,7 +724,9 @@ def test_chart_texts_and_templates_never_use_judging_words():
         for name in (
             "tracking.html",
             "includes/weight_chart.html",
+            "includes/weight_svg.html",
             "includes/bcs_chart.html",
+            "includes/bcs_svg.html",
             "includes/chart_legend.html",
             "includes/sparkline.html",
         )
@@ -652,3 +735,124 @@ def test_chart_texts_and_templates_never_use_judging_words():
     for text in texts:
         for word in FORBIDDEN_WORDS:
             assert word not in text.lower(), (word, text[:60])
+
+
+# --- Number of queries ---------------------------------------------------------------------------
+
+
+def count_queries(client, url: str) -> int:
+    with CaptureQueriesContext(connection) as queries:
+        assert client.get(url).status_code == 200
+    return len(queries)
+
+
+def test_tracking_page_queries_do_not_depend_on_the_number_of_measurements(
+    client, user, vet_user, make_animal, make_measurement
+):
+    """The table shows the e-mail of a vet who wrote a measurement (created_by): without
+    select_related that is one query per row. Nothing but this test noticed it missing."""
+    animal = make_animal(user, name="Mnoho")
+    AnimalShare.objects.create(animal=animal, vet=vet_user, granted_by=user)
+    client.force_login(user)
+
+    def add(count: int, offset: int) -> None:
+        for index in range(count):
+            make_measurement(
+                animal,
+                measured_on=days_ago(offset + index),
+                assessed_by=Assessor.VET,
+                created_by=vet_user,
+                bcs=5,
+            )
+
+    add(1, 1)
+    few = count_queries(client, url_of(animal, "vse"))
+    add(20, 2)
+    many = count_queries(client, url_of(animal, "vse"))
+
+    assert few == many
+    assert many <= 5  # session, user, animal, measurements (+ the share check)
+    page = client.get(url_of(animal, "vse")).content.decode()
+    assert page.count("veterinární lékař (vet@example.cz)") == 21  # the e-mail is in every row
+
+
+# --- Czech counted noun ------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("older", "sentence"),
+    [
+        (1, "Mimo zobrazené období je další 1 měření"),
+        (2, "Mimo zobrazené období jsou další 2 měření"),
+        (3, "Mimo zobrazené období jsou další 3 měření"),
+        (5, "Mimo zobrazené období je dalších 5 měření"),
+    ],
+)
+def test_outside_period_sentence_has_the_right_grammar(
+    client, user, make_animal, make_measurement, older, sentence
+):
+    animal = make_animal(user)
+    for index in range(older):
+        make_measurement(animal, measured_on=days_ago(100 + index))
+    make_measurement(animal, measured_on=days_ago(5))
+    client.force_login(user)
+
+    content = flat(client.get(url_of(animal, "30")).content.decode())
+
+    assert f"{sentence}: <a href=" in content
+    assert "dalších 1 měření" not in content and "dalších 3 měření" not in content
+
+
+# --- Narrow screens: table hint, dates, no hidden overflow -------------------------------------
+
+
+def test_table_names_its_scroll_region_and_hints_that_it_scrolls(client, user, filled):
+    client.force_login(user)
+    content = client.get(url_of(filled)).content.decode()
+
+    assert 'role="region" aria-label="Tabulka měření, posuvná oblast" tabindex="0"' in content
+    # The section is named "Tabulka měření"; the region inside must not carry the same name.
+    assert 'role="region" aria-labelledby=' not in content
+    assert (
+        '<p class="hint table-hint">Tabulku lze na úzké obrazovce posouvat do stran.</p>' in content
+    )
+    assert content.count('<td class="date">') == 2  # the 90 days; dates stay on one line
+
+
+def test_stylesheet_keeps_the_hint_and_the_dates_for_narrow_screens():
+    css = (BASE_DIR / "static" / "css" / "app.css").read_text("utf-8")
+
+    assert re.search(r"\.table-hint \{\s*display: none;", css)
+    assert re.search(r"@media \(max-width: 40rem\) \{\s*\.table-hint \{\s*display: block;", css)
+    assert re.search(r"table\.data td\.date \{\s*white-space: nowrap;", css)
+
+
+def test_table_wrapper_contains_the_visually_hidden_texts_of_its_cells():
+    """The owner's "Smazat" column has visually hidden spans (position: absolute). Without a
+    positioned wrapper their containing block is the page, overflow-x of the wrapper does not
+    clip them and the whole page grew 285 px wider than a 390 px phone."""
+    css = (BASE_DIR / "static" / "css" / "app.css").read_text("utf-8")
+
+    block = re.search(r"\.table-wrap \{.*?\}", css, flags=re.DOTALL).group(0)
+    assert "position: relative" in block and "overflow-x: auto" in block
+    assert re.search(r"\.visually-hidden \{\s*position: absolute;", css)
+
+
+def test_charts_say_the_line_joins_recorded_measurements_only(client, user, filled):
+    client.force_login(user)
+    content = client.get(url_of(filled, "vse")).content.decode()
+
+    assert (
+        '<p class="hint">Čára spojuje zapsaná měření; mezi nimi nejsou zapsaná žádná data.</p>'
+        in content
+    )
+    assert "Čára spojuje zapsaná měření" in text_of(svgs(content)[0], "desc")
+
+
+def test_the_page_uses_one_name_for_the_tracking_screen(client, user, filled):
+    client.force_login(user)
+    content = client.get(url_of(filled)).content.decode()
+
+    assert "<title>Sledování hmotnosti a kondice: Rex" in content
+    assert "<h1>Sledování hmotnosti a kondice</h1>" in content
+    assert '<span aria-current="page">Sledování hmotnosti a kondice</span>' in content

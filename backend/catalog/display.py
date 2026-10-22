@@ -19,7 +19,7 @@ class VerificationStyle:
 
 VERIFICATION_STYLES: Final = MappingProxyType(
     {
-        "P": VerificationStyle("p", "✓", "P – ověřeno v primárním zdroji"),
+        "P": VerificationStyle("p", "✓", "P – ověřena hodnota nebo tabulka v primárním zdroji"),
         "A": VerificationStyle("a", "◆", "A – ověřen abstrakt nebo souhrn"),
         "S": VerificationStyle("s", "◇", "S – ověřeno jen přes sekundární zdroj"),
         "B": VerificationStyle("b", "○", "B – ověřeny jen bibliografické údaje"),
@@ -37,6 +37,40 @@ EVIDENCE_NAMES: Final = MappingProxyType(
         "L6": "sekundární zdroj",
     }
 )
+
+
+# What the reader must know about the numbers and findings of a source whose content was not
+# checked in the original. The registry rule (docs/zdroje.md): values with status S or "–"
+# only serve as an orientation for checking a transcription. A and P need no caveat.
+CONTENT_CAVEATS: Final = MappingProxyType(
+    {
+        "B": (
+            "Ověřeny byly jen bibliografické údaje, ne obsah zdroje. Čísla a zjištění v této "
+            "části jsou opsaná z registru a nejsou ověřená v původním zdroji."
+        ),
+        "S": (
+            "Obsah byl ověřen jen přes sekundární zdroj, který původní zdroj cituje. Čísla a "
+            "zjištění v této části nejsou ověřená v původním zdroji a slouží jen jako orientace."
+        ),
+        "NONE": (
+            "Zdroj je neověřený. Čísla a zjištění v této části jsou opsaná z registru, nejsou "
+            "ověřená a nelze je brát jako doporučení."
+        ),
+    }
+)
+
+
+def content_caveat(level: str) -> str:
+    """Return the warning for numbers and findings of a source with ``level``, or ``""``.
+
+    The levels ``B``, ``S`` and ``NONE`` mean that the content was not checked in the original
+    document; ``A`` (abstract) and ``P`` (primary source) get no extra warning.
+
+    Raises:
+        ValueError: unknown level.
+    """
+    verification_style(level)  # rejects an unknown level
+    return CONTENT_CAVEATS.get(level, "")
 
 
 def verification_style(level: str) -> VerificationStyle:

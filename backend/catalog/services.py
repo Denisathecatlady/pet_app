@@ -28,6 +28,13 @@ PARAM_TYPE: Final = "typ"
 PARAM_VERIFICATION: Final = "overeni"
 PARAM_PAGE: Final = "strana"
 
+# A source about both species is also about dogs and also about cats, so the filter "dogs"
+# (or "cats") shows it too. "Both species" and "not applicable" are exact.
+SPECIES_FILTER: Final = {
+    SpeciesScope.DOG: (SpeciesScope.DOG, SpeciesScope.BOTH),
+    SpeciesScope.CAT: (SpeciesScope.CAT, SpeciesScope.BOTH),
+}
+
 # Columns the list shows; the long text fields are not loaded for it.
 LIST_FIELDS: Final = (
     "citation_key",
@@ -35,6 +42,7 @@ LIST_FIELDS: Final = (
     "authors_or_org",
     "year",
     "source_type",
+    "type_note",
     "evidence_level",
     "species_scope",
     "verification_level",
@@ -132,7 +140,8 @@ def _filtered(query: SourceQuery) -> QuerySet[ScientificSource]:
     if query.evidence:
         sources = sources.filter(evidence_level=query.evidence)
     if query.species:
-        sources = sources.filter(species_scope=query.species)
+        scopes = SPECIES_FILTER.get(SpeciesScope(query.species), (query.species,))
+        sources = sources.filter(species_scope__in=scopes)
     if query.source_type:
         sources = sources.filter(source_type=query.source_type)
     if query.verification:

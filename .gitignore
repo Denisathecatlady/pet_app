@@ -5,3 +5,14 @@ __pycache__/
 .hypothesis/
 staticfiles/
 .env
+# Secrets and backups: never commit them (docs/13-nasazeni-a-provoz.md). The documented
+# locations are outside the checkout (/etc/barf, /var/backups/barf), but a manual run from a
+# checkout or a "git add -A" must not pick them up.
+*.env
+*.dump
+*.dump.gpg
+*.dump.gpg.sha256
+.barf-partial.*
+*passphrase*
+*pgpass*
+restore-test*.log

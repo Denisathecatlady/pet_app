@@ -27,6 +27,8 @@ MIN_PASSPHRASE_LENGTH=20
 
 utc_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 utc_stamp() { date -u +%Y%m%dT%H%M%SZ; }
+# utc_stamp_at EPOCH: the time EPOCH (seconds since 1970) in the format of the backup names.
+utc_stamp_at() { date -u -d "@$1" +%Y%m%dT%H%M%SZ; }
 
 log() { printf '%s %s: %s\n' "$(utc_now)" "$SCRIPT_NAME" "$*" >&2; }
 
@@ -84,33 +86,39 @@ validate_db_name() {
   [[ ${!1} =~ $DB_NAME_RE ]] || die 2 "$1 must match $DB_NAME_RE"
 }
 
-# load_env_file: read NAME=value lines from the file named by BARF_ENV_FILE (optional).
+# Names taken from the file of the backup scripts (BARF_ENV_FILE) and from the application file
+# of the daily Django jobs (APP_ENV_FILE, run_manage.sh); any other name is skipped.
+BARF_ENV_NAMES='^((POSTGRES|BACKUP|RESTORE)_[A-Z0-9_]*|PGPASSFILE|PGSSLMODE|PGSSLROOTCERT|GNUPGHOME)$'
+# shellcheck disable=SC2034  # used by run_manage.sh
+APP_ENV_NAMES='^(DJANGO|POSTGRES)_[A-Z0-9_]*$'
+
+# load_env_file [FILE LABEL NAME_REGEX]: read NAME=value lines from FILE (default: the file named
+# by BARF_ENV_FILE, label BARF_ENV_FILE, names BARF_ENV_NAMES). No file named = nothing to do.
 #
-# The file is parsed, never executed. It must be mode 600 or stricter. Blank lines and lines
-# starting with # are ignored; a value may be wrapped in one pair of quotes; there is no
-# variable expansion and no inline comment. Only POSTGRES_*, BACKUP_*, RESTORE_*, PGPASSFILE,
-# PGSSLMODE, PGSSLROOTCERT and GNUPGHOME are taken, other names (for example the DJANGO_*
-# lines of a file shared with the application) are skipped. A variable that is already set
-# and non-empty in the environment wins over the file.
+# The file is parsed, never executed: a value such as $(command) or a secret key with $ & ( ) !
+# is taken literally. It must be mode 600 or stricter. Blank lines and lines starting with #
+# are ignored; a value may be wrapped in one pair of quotes; there is no variable expansion
+# and no inline comment. Only names that match NAME_REGEX are taken (for BARF_ENV_FILE
+# POSTGRES_*, BACKUP_*, RESTORE_*, PGPASSFILE, PGSSLMODE, PGSSLROOTCERT and GNUPGHOME), other
+# names (for example the DJANGO_* lines of a file shared with the application) are skipped. A
+# variable that is already set and non-empty in the environment wins over the file.
 load_env_file() {
-  local file=${BARF_ENV_FILE:-} line name value number=0
+  local file=${1-${BARF_ENV_FILE:-}} label=${2:-BARF_ENV_FILE} allowed=${3:-$BARF_ENV_NAMES}
+  local line name value number=0
   [ -n "$file" ] || return 0
-  is_readable_file "$file" || die 2 "BARF_ENV_FILE ($file) is not a readable file"
-  reject_loose_permissions "$file" BARF_ENV_FILE
+  is_readable_file "$file" || die 2 "$label ($file) is not a readable file"
+  reject_loose_permissions "$file" "$label"
   while IFS= read -r line || [ -n "$line" ]; do
     number=$((number + 1))
     if [[ $line =~ ^[[:space:]]*(#.*)?$ ]]; then
       continue
     fi
     if ! [[ $line =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
-      die 2 "BARF_ENV_FILE line $number: expected NAME=value"
+      die 2 "$label line $number: expected NAME=value"
     fi
     name=${BASH_REMATCH[1]}
     value=${BASH_REMATCH[2]}
-    case $name in
-      POSTGRES_* | BACKUP_* | RESTORE_* | PGPASSFILE | PGSSLMODE | PGSSLROOTCERT | GNUPGHOME) ;;
-      *) continue ;;
-    esac
+    [[ $name =~ $allowed ]] || continue
     if [ -n "${!name:-}" ]; then
       continue
     fi
@@ -121,6 +129,20 @@ load_env_file() {
   done <"$file"
 }
 
+# require_tls_for_remote_host HOST: HOST is a unix-socket directory or the loopback interface, or
+# PGSSLMODE is require, verify-ca or verify-full. libpq's default (prefer) falls back to plain
+# text, which anybody on the path can force, so a remote server without a TLS setting is refused
+# (exit 2). Use verify-full with PGSSLROOTCERT to also check the server's identity.
+require_tls_for_remote_host() {
+  case $1 in
+    /* | localhost | 127.0.0.1 | ::1) return 0 ;;
+  esac
+  case ${PGSSLMODE:-} in
+    require | verify-ca | verify-full) ;;
+    *) die 2 "POSTGRES_HOST ($1) is not local: set PGSSLMODE to require, verify-ca or verify-full (now: ${PGSSLMODE:-not set}), or reach the server through localhost" ;;
+  esac
+}
+
 # setup_pg_env: map the POSTGRES_* variables (the ones Django reads) to libpq's own and make
 # sure a password source exists. Needs POSTGRES_USER, POSTGRES_HOST and optionally POSTGRES_PORT.
 #
@@ -128,9 +150,13 @@ load_env_file() {
 # so libpq really uses the file), else POSTGRES_PASSWORD (the variable the Django settings read;
 # copied to PGPASSWORD for the child programs only), else an inherited PGPASSWORD. None of
 # them is ever passed as an argument.
+#
+# A dump moves the whole database and the password exchange needs a protected channel, so a
+# server that is not local must be reached over TLS: see require_tls_for_remote_host.
 setup_pg_env() {
   [[ ${POSTGRES_PORT:-5432} =~ ^[0-9]{1,5}$ ]] || die 2 "POSTGRES_PORT must be a port number"
   unset PGHOSTADDR PGSERVICE PGSERVICEFILE PGDATABASE
+  require_tls_for_remote_host "$POSTGRES_HOST"
   export PGHOST=$POSTGRES_HOST PGPORT=${POSTGRES_PORT:-5432} PGUSER=$POSTGRES_USER
   if [ -n "${PGPASSFILE:-}" ]; then
     is_readable_file "$PGPASSFILE" || die 2 "PGPASSFILE ($PGPASSFILE) is not a readable file"
@@ -161,6 +187,20 @@ maintenance_db() {
   printf '%s\n' "$name"
 }
 
+# reject_system_database VARIABLE: the value of VARIABLE must not be a database of the server
+# itself (postgres, template0, template1) or the maintenance database. A restore into template1
+# would copy the personal data into every database created later, and "pristine" template1 and
+# postgres pass the check for an empty target.
+reject_system_database() {
+  local name=${!1}
+  case $name in
+    postgres | template0 | template1) die 2 "$1 ($name) is a system database of the server" ;;
+  esac
+  if [ "$name" = "$(maintenance_db)" ]; then
+    die 2 "$1 ($name) is the maintenance database (POSTGRES_MAINTENANCE_DB)"
+  fi
+}
+
 # db_exists NAME: succeeds when the database exists (asks the maintenance database).
 db_exists() {
   local found
@@ -172,8 +212,13 @@ SQL
 }
 
 # run_gpg ARGUMENT...: gpg in batch mode with the passphrase from BACKUP_PASSPHRASE_FILE.
+#
+# gpg starts a gpg-agent that outlives the script and keeps the environment it was started
+# with, so the database passwords are removed from gpg's environment: it never needs them.
+# --no-symkey-cache keeps the agent from caching the symmetric passphrase (GnuPG 2.2.7+).
 run_gpg() {
-  gpg --batch --no-tty --quiet --pinentry-mode loopback \
+  env -u PGPASSWORD -u POSTGRES_PASSWORD -u PGPASSFILE \
+    gpg --batch --no-tty --quiet --pinentry-mode loopback --no-symkey-cache \
     --passphrase-file "$BACKUP_PASSPHRASE_FILE" "$@"
 }
 

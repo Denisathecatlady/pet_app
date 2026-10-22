@@ -25,11 +25,20 @@ class FilterField:
     value: str
 
 
+# The filter "dogs" also shows the sources about both species (services.SPECIES_FILTER).
+SPECIES_FILTER_LABELS = {
+    SpeciesScope.DOG: "psi (i zdroje o psech i kočkách)",
+    SpeciesScope.CAT: "kočky (i zdroje o psech i kočkách)",
+    SpeciesScope.BOTH: "jen zdroje o psech i kočkách",
+    SpeciesScope.NOT_APPLICABLE: SpeciesScope.NOT_APPLICABLE.label,
+}
+
+
 def _filter_fields(query: services.SourceQuery) -> list[FilterField]:
     return [
         FilterField(
             services.PARAM_EVIDENCE,
-            "Úroveň důkazů",
+            "Úroveň odbornosti zdroje",
             [
                 (level.value, f"{level.value} – {EVIDENCE_NAMES[level.value]}")
                 for level in EvidenceLevel
@@ -39,7 +48,7 @@ def _filter_fields(query: services.SourceQuery) -> list[FilterField]:
         FilterField(
             services.PARAM_SPECIES,
             "Druh zvířat",
-            [(scope.value, scope.label) for scope in SpeciesScope],
+            [(scope.value, SPECIES_FILTER_LABELS[scope]) for scope in SpeciesScope],
             query.species,
         ),
         FilterField(
@@ -62,7 +71,8 @@ def source_list(request: HttpRequest) -> HttpResponse:
     """List of sources with filters, text search and pagination (25 per page).
 
     Query parameters (all optional, invalid values are ignored): ``q`` (text in the key,
-    title or authors), ``uroven`` (L1–L6), ``druh`` (DOG, CAT, BOTH, NOT_APPLICABLE),
+    title or authors), ``uroven`` (L1–L6), ``druh`` (DOG and CAT also match BOTH; BOTH and
+    NOT_APPLICABLE are exact),
     ``typ`` (source type code), ``overeni`` (B, A, P, S, NONE) and ``strana``.
     """
     result = services.search_sources(services.parse_query(request.GET))

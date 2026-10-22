@@ -269,8 +269,9 @@ def test_summaries_use_prefetched_data(
         animal = make_animal(user, name=name)
         make_measurement(animal, bcs=5)
         add_condition(animal, "CKD")
-    # 1 animals + 1 measurements + 1 conditions with their catalog entry.
-    with django_assert_num_queries(3):
+    # 1 animals + 3 measurements (newest rows, latest BCS, latest MCS) + 1 conditions with their
+    # catalog entry: the same five queries for any number of animals and measurements.
+    with django_assert_num_queries(5):
         summaries = summarize(owned_animals(user))
     assert [s.attention.level for s in summaries] == [BLOCKED] * 3
 

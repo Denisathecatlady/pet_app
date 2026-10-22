@@ -34,16 +34,20 @@ Každá další funkce stojí na jádře, kterému už lze věřit.
 > a PDF (zbytek M4 a M5) jsou na žádost zadavatele odložené a čekají na M1 a M3.
 
 > **Stav registru zdrojů (součást M1) 🛠:** všech 37 zdrojů registru [zdroje.md](zdroje.md) je
-> v aplikaci jako `ScientificSource` a veřejná *Knihovna zdrojů* ukazuje jejich úroveň důkazů a
-> stav ověření ([13](13-zdroje-v-aplikaci.md)). Žádný zdroj zatím nemá značku **P** (ověřená hodnota
-> v primárním zdroji); data standardů a surovin (zbytek M1) a jejich schválení specialistou
-> zůstávají odložené.
+> v aplikaci jako `ScientificSource` a veřejná *Knihovna zdrojů* ukazuje jejich úroveň odbornosti a
+> stav ověření ([13](13-zdroje-v-aplikaci.md)). Žádný zdroj zatím nemá v knihovně značku **P**
+> (ověřená hodnota v primárním zdroji); data standardů a surovin (zbytek M1) a jejich schválení
+> specialistou zůstávají odložené. **Oprava značky:** hodnoty `[FEDIAF2025]` (95/110 a 75/100 kcal ME, Ca:P 2:1) byly v dokumentech [03](03-nutricni-pozadavky.md) §3.3 a [05](05-energeticky-model.md) §5.3 dříve značeny ✅ P. Čteny byly jen z výpisů vyhledávače, proto jsou nově ✅ S, jako v registru zdrojů.
 
 > **Stav provozu (součást M4) 🛠:** pro zálohy a obnovu databáze jsou hotové skripty `deploy/`
-> (`backup_db.sh`, `restore_db.sh`, `restore_test.sh`, `crontab.example`) s automatickými testy
-> `tests/ops/` a [provozní příručka](13-nasazeni-a-provoz.md) (nasazení, proxy a TLS, denní úlohy, retence
-> 30 dní + 12 měsíců, měsíční test obnovy, GDPR a zálohy). Nevyzkoušená zůstává WAL archivace
-> (obnova k okamžiku), přenos záloh mimo server a běh za skutečnou reverzní proxy s TLS.
+> (`backup_db.sh`, `restore_db.sh`, `restore_test.sh`, `run_manage.sh` pro denní úlohy aplikace,
+> `crontab.example`) s automatickými testy `tests/ops/` a
+> [provozní příručka](13-nasazeni-a-provoz.md) (nasazení, proxy a TLS, denní úlohy, retence
+> 30 dní + 12 měsíců, měsíční test obnovy, oddělený účet pro zálohy, GDPR a zálohy).
+> **Není implementováno:** přenos záloh mimo server (skripty zapisují jen do `BACKUP_DIR`,
+> přenos je ruční krok, §13.11) a WAL archivace (jen popsaná). **Nevyzkoušeno:** WAL archivace
+> (obnova k okamžiku), běh za skutečnou reverzní proxy s TLS, běh pod cronem a rozdělení účtů
+> `barf` a `barf-backup`.
 
 Celkem do uzavřené bety (M1–M5): zhruba **12–17 týdnů** práce plus čas na revize specialisty. Největší
 nejistota je v datech (M1) a v dostupnosti specialisty (M3), ne v programování.

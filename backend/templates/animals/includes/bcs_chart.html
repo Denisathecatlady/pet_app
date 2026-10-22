@@ -1,38 +1,10 @@
-{% load animal_tags l10n %}
+{% load animal_tags %}
 <figure class="chart">
-  <div class="chart__scroll" role="region" aria-labelledby="bcs-title" tabindex="0">
-    {% localize off %}
-    <svg class="chart__svg" viewBox="0 0 {{ bcs.frame.width }} {{ bcs.frame.height }}" role="img" aria-labelledby="bcs-svg-title bcs-svg-desc" focusable="false">
-      <title id="bcs-svg-title">Graf BCS zvířete {{ animal.name }} za {{ period.phrase }}</title>
-      <desc id="bcs-svg-desc">{{ bcs_description }}</desc>
-      <text class="chart__axis-title" transform="translate({{ bcs.frame.title_x }} {{ bcs.frame.center_y }}) rotate(-90)" text-anchor="middle">BCS (1–9)</text>
-      <rect class="chart__band" x="{{ bcs.frame.left }}" y="{{ bcs.band.top }}" width="{{ bcs.frame.plot_width }}" height="{{ bcs.band.height }}"/>
-      <line class="chart__band-edge" x1="{{ bcs.frame.left }}" y1="{{ bcs.band.top }}" x2="{{ bcs.frame.right }}" y2="{{ bcs.band.top }}"/>
-      <line class="chart__band-edge" x1="{{ bcs.frame.left }}" y1="{{ bcs.band.bottom }}" x2="{{ bcs.frame.right }}" y2="{{ bcs.band.bottom }}"/>
-      {% for tick in bcs.y_ticks %}
-        <line class="chart__grid" x1="{{ bcs.frame.left }}" y1="{{ tick.y }}" x2="{{ bcs.frame.right }}" y2="{{ tick.y }}"/>
-        <text class="chart__tick" x="{{ bcs.frame.y_label_x }}" y="{{ tick.y }}" dy="0.35em" text-anchor="end">{{ tick.label }}</text>
-      {% endfor %}
-      {% for tick in bcs.x_ticks %}
-        <line class="chart__axis" x1="{{ tick.x }}" y1="{{ bcs.frame.bottom }}" x2="{{ tick.x }}" y2="{{ bcs.frame.x_tick_end }}"/>
-        <text class="chart__tick" x="{{ tick.x }}" y="{{ bcs.frame.x_label_y }}" text-anchor="middle">{{ tick.label }}</text>
-      {% endfor %}
-      <line class="chart__axis" x1="{{ bcs.frame.left }}" y1="{{ bcs.frame.top }}" x2="{{ bcs.frame.left }}" y2="{{ bcs.frame.bottom }}"/>
-      <line class="chart__axis" x1="{{ bcs.frame.left }}" y1="{{ bcs.frame.bottom }}" x2="{{ bcs.frame.right }}" y2="{{ bcs.frame.bottom }}"/>
-      <text class="chart__label chart__label--band" x="{{ bcs.band.label.x }}" y="{{ bcs.band.label.y }}" text-anchor="{{ bcs.band.label.anchor }}">{{ bcs.band.label.text }}</text>
-      {% for point in bcs.points %}
-        {% if point.is_vet %}
-          <polygon class="chart__point chart__point--vet" points="{{ point.diamond_points }}"><title>{{ point.description }}</title></polygon>
-        {% else %}
-          <circle class="chart__point chart__point--owner" cx="{{ point.x }}" cy="{{ point.y }}" r="5"><title>{{ point.description }}</title></circle>
-        {% endif %}
-      {% endfor %}
-    </svg>
-    {% endlocalize %}
-  </div>
+  {% include "animals/includes/bcs_svg.html" with chart=bcs variant="wide" description=bcs_description %}
+  {% include "animals/includes/bcs_svg.html" with chart=bcs_compact variant="compact" description=bcs_description %}
   <figcaption class="chart__caption">
     {% include "animals/includes/chart_legend.html" with chart=bcs legend_label="Legenda grafu BCS" %}
-    <p>Pásmo 4–5 z 9 je jen vodítko na škále, ne hodnocení zdraví zvířete. Skóre i jeho význam
-    posoudí veterinární lékař.</p>
+    <p>Pásmo 4–5 z 9 vyznačuje střed devítibodové škály. Je jen vodítko na škále, ne hodnocení
+    zdraví zvířete ani doporučený rozsah. Skóre i jeho význam posoudí veterinární lékař.</p>
   </figcaption>
 </figure>

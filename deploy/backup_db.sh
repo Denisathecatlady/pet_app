@@ -15,16 +15,24 @@
 # After a successful backup the directory is pruned: the newest 30 backups and the first
 # backup of each of the last 12 calendar months (months counted back from the newest
 # backup) are kept, every other file that matches the backup name exactly is deleted.
+# The retention reads the time from the file names, not from a file's date, and ignores names
+# more than a day ahead of the server clock (a clock that was set back, or a stray file): they
+# are never counted, never deleted and reported as a WARNING. The backup that was just written
+# is never deleted: if the names in the directory would push it out, nothing is deleted and
+# the script exits with status 1.
 # --prune-only prunes without making a backup (needs only BACKUP_DIR).
 #
 # Environment (or a file named by BARF_ENV_FILE, mode 600):
 #   POSTGRES_DB, POSTGRES_USER, POSTGRES_HOST   what to dump, as for the Django settings
 #   POSTGRES_PORT                               optional, default 5432
 #   POSTGRES_PASSWORD | PGPASSFILE | PGPASSWORD one of them: the database password
+#   PGSSLMODE, PGSSLROOTCERT                    TLS of a remote server (require, verify-ca or
+#                                               verify-full are mandatory unless it is local)
 #   BACKUP_DIR                                  absolute path, not accessible to other users
 #   BACKUP_PASSPHRASE_FILE                      file (mode 600) whose first line is the
 #                                               passphrase, at least 20 characters
-# Exit status: 0 success, 1 the backup failed (nothing is left behind), 2 bad configuration.
+# Exit status: 0 success, 1 the backup failed (nothing is left behind) or the retention refused
+# to delete anything, 2 bad configuration.
 
 set -euo pipefail
 umask 077
@@ -38,12 +46,15 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pw
 # Retention (docs/07 §7.7): fixed on purpose, a wrong value would silently delete backups.
 KEEP_NEWEST=30
 KEEP_MONTHS=12
+# A backup name this far ahead of the clock is not a backup of the past (seconds).
+FUTURE_TOLERANCE=86400
 # Tables whose row counts are recorded in the manifest (when the table exists).
 COUNTED_TABLES=(accounts_user animals_animal catalog_scientificsource)
 SNAPSHOT_END='__barf_end_of_result__'
 
 partial_dump=''
 partial_manifest=''
+created_name=''
 
 stop_snapshot_session() {
   [ -n "${SNAP_PID:-}" ] || return 0
@@ -98,17 +109,31 @@ month_index() {
   echo $((10#${1:5:4} * 12 + 10#${1:9:2}))
 }
 
-# prune_backups DIRECTORY: apply the retention rule to DIRECTORY (see the header).
+# prune_backups DIRECTORY [PROTECTED_NAME]: apply the retention rule to DIRECTORY (see the header).
 # Only regular files whose name matches the backup pattern exactly are ever deleted, together
 # with their manifest. Manifests of backups that no longer exist are deleted too.
+#
+# The names are the only clock the rule reads, so a name from the future would become the
+# "newest" backup, define the 12 month window and push every real backup out of the newest 30.
+# Names more than FUTURE_TOLERANCE seconds ahead of the clock are therefore left out of the
+# calculation and are never deleted. PROTECTED_NAME (the backup that was just written) must
+# survive the rule; if it would not, nothing is deleted and the function returns 1.
 prune_backups() {
-  local directory=$1 name path index newest_index total i
-  local names=() deleted=0
+  local directory=$1 protected=${2:-} name path index newest_index total i cutoff
+  local names=() future=() deleted=0
   local -A keep=() seen=()
+  cutoff="barf-$(utc_stamp_at $(($(date +%s) + FUTURE_TOLERANCE))).dump.gpg"
   while IFS= read -r name; do
-    names+=("$name")
+    if [[ $name > $cutoff ]]; then
+      future+=("$name")
+    else
+      names+=("$name")
+    fi
   done < <(list_backups "$directory")
   total=${#names[@]}
+  if [ "${#future[@]}" -gt 0 ]; then
+    log "WARNING: ${#future[@]} backup name(s) are dated more than a day ahead of the clock (first: ${future[0]}): they are neither counted nor deleted; check the server clock, or remove the file(s) by hand if they do not belong here"
+  fi
   if [ "$total" -gt 0 ]; then
     for ((i = total > KEEP_NEWEST ? total - KEEP_NEWEST : 0; i < total; i++)); do
       keep[${names[i]}]=1
@@ -123,6 +148,10 @@ prune_backups() {
         fi
       fi
     done
+    if [ -n "$protected" ] && [ -z "${keep[$protected]:-}" ]; then
+      log "ERROR: the retention rule would delete the backup that was just written ($protected): $KEEP_NEWEST or more backup names in $directory are newer. Nothing was deleted. Check the server clock and the directory"
+      return 1
+    fi
     for name in "${names[@]}"; do
       if [ -z "${keep[$name]:-}" ]; then
         rm -f -- "$directory/$name" "$directory/$name.sha256"
@@ -139,7 +168,7 @@ prune_backups() {
       log "pruned orphan manifest $name"
     fi
   done
-  log "retention: $((total - deleted)) backup(s) kept, $deleted deleted"
+  log "retention: $((total - deleted)) backup(s) kept, $deleted deleted, ${#future[@]} ignored (dated in the future)"
 }
 
 make_backup() {
@@ -193,6 +222,7 @@ make_backup() {
   if [ ! -f "$final" ] || [ ! -f "$manifest" ]; then
     die 1 "could not move the backup into place"
   fi
+  created_name=$name
   size=$(wc -c <"$final")
   log "backup written: $name ($((size)) bytes), manifest $name.sha256"
   printf '%s\n' "$final"
@@ -211,7 +241,7 @@ main() {
   if [ "$prune_only" = 1 ]; then
     require_vars BACKUP_DIR
     check_backup_dir
-    prune_backups "$BACKUP_DIR"
+    prune_backups "$BACKUP_DIR" || exit 1
     return 0
   fi
 
@@ -222,7 +252,7 @@ main() {
   need_commands pg_dump pg_restore psql gpg sha256sum
   setup_pg_env
   make_backup
-  prune_backups "$BACKUP_DIR"
+  prune_backups "$BACKUP_DIR" "$created_name" || exit 1
 }
 
 main "$@"

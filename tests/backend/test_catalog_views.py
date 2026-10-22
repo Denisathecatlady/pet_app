@@ -10,6 +10,7 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils.html import strip_tags
 
 from catalog.display import EVIDENCE_NAMES, VERIFICATION_STYLES, evidence_name, verification_style
 from catalog.models import EvidenceLevel, ScientificSource, VerificationLevel
@@ -23,6 +24,12 @@ BANNER = "Zdroj v knihovně není automaticky ověřený v originále."
 
 def detail(key: str) -> str:
     return reverse("catalog:source_detail", args=[key])
+
+
+def flat(response) -> str:
+    """The HTML of a response with entities decoded and white space collapsed (line breaks in
+    the templates must not matter to a test that looks for a sentence)."""
+    return " ".join(html.unescape(response.content.decode()).split())
 
 
 def keys_on(response) -> list[str]:
@@ -243,8 +250,8 @@ def test_unknown_levels_never_render_as_neutral():
         ("uroven=L5", {"Food1"}),
         ("uroven=L4", set()),
         ("druh=BOTH", {"Guide1", "Wiki1"}),
-        ("druh=DOG", {"Dogs1"}),
-        ("druh=CAT", {"Cats1"}),
+        ("druh=DOG", {"Dogs1", "Guide1", "Wiki1"}),  # the sources about both species too
+        ("druh=CAT", {"Cats1", "Guide1", "Wiki1"}),
         ("druh=NOT_APPLICABLE", {"Food1"}),
         ("typ=META_ANALYSIS", {"Dogs1"}),
         ("typ=SECONDARY", {"Wiki1"}),
@@ -253,6 +260,8 @@ def test_unknown_levels_never_render_as_neutral():
         ("overeni=NONE", {"Food1"}),
         ("overeni=B", {"Wiki1"}),
         ("druh=BOTH&overeni=S", {"Guide1"}),
+        ("druh=DOG&overeni=S", {"Guide1"}),
+        ("druh=CAT&overeni=A", set()),
         ("druh=BOTH&uroven=L1&typ=GUIDELINE&overeni=S&q=standard", {"Guide1"}),
         ("druh=DOG&overeni=P", set()),
     ],
@@ -261,6 +270,30 @@ def test_filters(client, library, query, expected):
     response = client.get(f"{LIST}?{query}")
     assert response.status_code == 200
     assert set(keys_on(response)) == expected
+
+
+def test_dogs_filter_includes_the_sources_about_both_species(client):
+    """?druh=DOG used to hide the main guidelines (FEDIAF, NRC, AAFCO, WSAVA) because they
+    are about both species: a dog owner saw the least authoritative subset."""
+    dogs = set(keys_on(client.get(LIST, {"druh": "DOG", "uroven": "L1"})))
+    cats = set(keys_on(client.get(LIST, {"druh": "CAT", "uroven": "L1"})))
+    both = set(keys_on(client.get(LIST, {"druh": "BOTH", "uroven": "L1"})))
+
+    assert {"FEDIAF2025", "NRC2006", "AAFCO2014", "WSAVA2011"} <= dogs
+    assert {"FEDIAF2025", "NRC2006", "AAFCO2014", "WSAVA2011"} <= cats
+    assert both <= dogs and both <= cats
+    assert "Pion1987" not in set(keys_on(client.get(LIST, {"druh": "DOG"})))  # a cat-only study
+    assert "Bermingham2014" not in set(keys_on(client.get(LIST, {"druh": "CAT"})))  # dogs only
+
+
+def test_species_filter_options_say_what_they_include(client, library):
+    content = html.unescape(client.get(LIST).content.decode())
+
+    assert '<option value="DOG">psi (i zdroje o psech i kočkách)</option>' in content
+    assert '<option value="CAT">kočky (i zdroje o psech i kočkách)</option>' in content
+    assert '<option value="BOTH">jen zdroje o psech i kočkách</option>' in content
+    assert '<option value="NOT_APPLICABLE">druh se neuplatňuje</option>' in content
+    assert "přesnou hodnotu" not in content
 
 
 @pytest.mark.parametrize(
@@ -492,6 +525,43 @@ def test_search_result_reports_the_page_actually_shown(sixty):
     assert result.query.page == 1 and (result.matched, result.total) == (60, 60)
 
 
+def test_list_does_not_claim_that_the_application_relies_on_the_sources(client, library):
+    """Nothing in the application uses a source yet (docs/13-zdroje-v-aplikaci.md §13.7)."""
+    text = " ".join(html.unescape(strip_tags(client.get(LIST).content.decode())).split())
+
+    assert "na které se aplikace odvolává" not in text
+    assert "Zdroje zatím nejsou v aplikaci k ničemu použité" in text
+    assert "neznamená, že z něj aplikace vychází" in text
+
+
+def test_the_level_is_called_what_the_registry_calls_it(client, library):
+    list_page = client.get(LIST).content.decode()
+    detail_page = client.get(library["guide"].get_absolute_url()).content.decode()
+
+    assert "Úroveň odbornosti zdroje" in list_page
+    assert "<dt>Úroveň odbornosti zdroje</dt>" in detail_page
+    assert "Legenda: úroveň odbornosti zdroje a stav ověření" in list_page
+    for page in (list_page, detail_page):
+        assert "Úroveň důkazů" not in page and "úrovně důkazů" not in page.lower()
+
+
+def test_list_item_shows_the_type_note_of_the_registry(client, empty_library, make_source):
+    make_source(
+        citation_key="Noted1",
+        source_type="GUIDELINE",
+        evidence_level="L1",
+        type_note="Průmyslová doporučení, právně nezávazná",
+    )
+    make_source(citation_key="Plain1")
+
+    content = client.get(LIST).content.decode()
+
+    assert (
+        "Typ: doporučení, standard nebo regulační profil (Průmyslová doporučení, právně" in content
+    )
+    assert "Typ: původní studie · Druh zvířat" in content  # no empty parentheses
+
+
 # --- Detail ---------------------------------------------------------------------------------------
 
 
@@ -542,7 +612,7 @@ def test_detail_shows_every_field(client, empty_library, make_source, user):
         "Původní recenzovaná studie (experimentální, observační).",
         "Bibliografické údaje (autoři, rok, časopis, ročník, strany) ověřeny.",
         "Ověřen obsah abstraktu nebo souhrnu (hlavní zjištění).",
-        "Co přesně bylo ověřeno",
+        "Poznámka k ověření v registru",
         "B (částečně), A",
         "18. 10. 2026",
         "Jen malý vzorek.",
@@ -600,6 +670,91 @@ def test_unverified_real_sources_say_so(client):
     assert "Neověřeno. Uvedeno z odborné znalosti. Před použitím je nutné to ověřit." in content
     assert "status--verif-none" in content
     assert "Licence (předpoklad CC0 / public domain) neověřena." in content
+
+
+def test_a_year_the_registry_doubts_is_not_shown_as_certain(client):
+    content = client.get(detail("PuppyIntake2019")).content.decode()
+    listed = client.get(LIST, {"q": "PuppyIntake2019"}).content.decode()
+
+    assert "<dt>Rok</dt><dd>neuveden</dd>" in content
+    assert "Rok vydání je v registru uveden s otazníkem" in html.unescape(content)
+    assert ", 2019" not in listed  # the list item shows no year
+
+
+@pytest.mark.parametrize("key", ["NRC2006", "vanBree2018"])
+def test_a_doi_the_registry_could_not_verify_is_marked(client, key):
+    content = client.get(detail(key)).content.decode()
+    assert "(DOI je podle registru neověřený)" in content
+
+
+def test_a_verified_doi_is_not_marked(client):
+    content = client.get(detail("Stockman2013")).content.decode()
+    assert "doi.org/10.2460/javma.242.11.1500" in content
+    assert "DOI je podle registru neověřený" not in content
+
+
+def test_the_doi_mark_follows_the_note_of_the_registry(empty_library, make_source):
+    marked = make_source(
+        citation_key="Doi1", doi="10.1000/x", verification_note="B. DOI zatím neověřen."
+    )
+    other = make_source(citation_key="Doi2", doi="10.1000/y", verification_note="B.")
+    no_doi = make_source(citation_key="Doi3", verification_note="DOI neověřen.")
+
+    assert (marked.doi_unverified, other.doi_unverified, no_doi.doi_unverified) == (
+        True,
+        False,
+        False,
+    )
+
+
+def test_detail_does_not_call_registry_notes_verified_facts(client):
+    """The note is the registry's text, which also holds open tasks ("autory doplnit")."""
+    content = flat(client.get(detail("Morris2002")))
+
+    assert "Poznámka k ověření v registru" in content
+    assert "Co přesně bylo ověřeno" not in content
+    assert "Slova „doplnit“ a „ověřit“ jsou otevřené úkoly registru" in content
+    assert "A (název a ročník ověřit)" in content
+
+
+def test_unverified_source_without_a_mark_is_not_called_known_from_expertise(client):
+    """The registry says "Existence ověřena" for SciRep2025 and gives no mark: the page must
+    neither claim that the source was verified nor leave the contradiction unexplained."""
+    content = flat(client.get(detail("SciRep2025")))
+
+    assert "Zdroj proto považujeme za neověřený." in content
+    assert "co registr o zdroji ví (například že existuje)" in content
+    assert "Existence ověřena" in content
+
+
+def test_numbers_of_unverified_sources_carry_a_warning(client):
+    scirep = flat(client.get(detail("SciRep2025")))
+    fediaf = flat(client.get(detail("FEDIAF2025")))
+    mdpi = flat(client.get(detail("MDPI2025")))
+
+    assert "Ca 1,25 g a P 1,00 g / 1 000 kcal" in scirep
+    assert scirep.index("Zdroj je neověřený. Čísla a zjištění") < scirep.index("Ca 1,25 g") + 400
+    assert "Obsah byl ověřen jen přes sekundární zdroj" in fediaf
+    assert "95 nebo 110 kcal ME" in fediaf
+    assert "Obsah byl ověřen jen přes sekundární zdroj" in mdpi
+
+
+def test_legend_speaks_to_readers_and_marks_the_order_of_marks_as_provisional(client):
+    text = " ".join(html.unescape(strip_tags(client.get(LIST).content.decode())).split())
+
+    assert "Síťová politika" not in text and "vývojového prostředí" not in text
+    assert "Štítek ukazuje nejvyšší dosaženou značku" in text
+    assert "je pracovní a potvrdí ho veterinární nutriční specialista" in text
+    assert "O textech u zdrojů" in text
+    assert "věty v první osobě pocházejí od vývojářů registru" in text
+
+
+def test_legend_lists_the_verification_levels_from_strongest_to_weakest(client):
+    content = client.get(LIST).content.decode()
+    legend = content.split('id="legend-verification"', 1)[1]
+    shown = re.findall(r"status--verif-(\w+)", legend)
+
+    assert shown[:5] == ["p", "a", "s", "b", "none"]
 
 
 # --- Escaping -------------------------------------------------------------------------------------

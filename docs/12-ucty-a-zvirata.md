@@ -84,8 +84,10 @@ Modely odpovídají docs/07 §7.4 **bez nutričních vazeb** (`preferred_standar
   malá písmena a bez duplicit) místo `ArrayField`;
 - `medications_affecting_diet` není samostatné pole (stav `MEDICATION_AFFECTING_DIET` + poznámka);
   `AnimalHealthCondition` má navíc pole `note`;
-- `HealthCondition.source` (vazba na `ScientificSource`) nahrazuje textové pole `source_note`
-  a přibyl popis `description_cs`: katalog zdrojů zatím neexistuje;
+- `HealthCondition.source` (vazba na `ScientificSource`) měl nahradit textové pole `source_note`
+  a přibyl popis `description_cs`. Katalog zdrojů už existuje ([13](13-zdroje-v-aplikaci.md),
+  model `ScientificSource`), ale zdravotní stavy na něj zatím navázané nejsou: zůstává textové
+  pole `source_note` a vazba přijde s připojením zdrojů k datům ([13](13-zdroje-v-aplikaci.md) §13.7);
 - `HealthCondition.mode` používá vlastní volby `ConditionMode` (`EXPERT_REQUIRED`, `BLOCKED`),
   ne celé `WarningLevel`, protože jiné úrovně stav mít nesmí;
 - abstraktní `TimeStamped` se nepoužívá: `Animal` má `created_at` a `updated_at`, ale ne
@@ -298,14 +300,26 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
     lékař.“, zda uvádět změnu i v procentech (nemůže působit jako hodnocení?), nabídka období
     30 dní, 90 dní, 1 rok a vše a to, že graf vzniká až ze dvou měření.
 13. Pásmo „4–5 z 9“ jako podklad grafu BCS (docs/05 §5.3: pásmo, pro které je výpočet z aktuální
-    hmotnosti určen). Stránka ho neoznačuje za „ideální“ ani „zdravé“. Je takové pojmenování
-    v pořádku, nebo se má pásmo nekreslit? Formulář měření (§12.4) dosud popisuje BCS 4–5 jako
-    „ideální kondici“: slovo sjednotit.
+    hmotnosti určen). Stránka ho neoznačuje za „ideální“ ani „zdravé“ a vysvětluje ho jako **střed
+    devítibodové škály**, jen vodítko, ne doporučený rozsah. Totéž slovo teď používá i formulář
+    měření (*4–5 = střed škály*, dřív „ideální kondice“) a komentář v kódu. Je takové pojmenování
+    v pořádku, nebo se má pásmo nekreslit? Zbývá věta *Ideální hmotnost by měl potvrdit
+    veterinář podle BCS* (cílová hmotnost; předepsaná v docs/08 §8.7): jde o „ideální hmotnost“,
+    ne o pásmo BCS, ale specialista může chtít slovo „ideální“ odstranit i tam.
 14. Minimální rozsah osy hmotnosti v grafu (nejméně 1 kg nebo 5 % nejvyšší zobrazené hmotnosti),
     aby kolísání o desítky gramů nevypadalo jako velká změna. Potvrdit hodnoty.
 15. Má stránka sledování připomínat doporučenou četnost vážení (docs/05 §5.6: hmotnost 1× týdně,
     BCS 1× za 2–4 týdny) a zobrazovat svalovou kondici (MCS) v grafu? Zatím je MCS jen v tabulce
     a žádná připomínka se nezobrazuje.
+16. Čára grafu hmotnosti spojuje i měření vzdálená měsíce od sebe a vypadá jako dopočtená.
+    Stránka to říká větou *Čára spojuje zapsaná měření; mezi nimi nejsou zapsaná žádná data.*
+    Má se úsek delší než určitá doba (např. 120 dní) kreslit slaběji nebo čárkovaně? Práh by
+    zvolil specialista, aplikace ho zatím nemá.
+17. **Technická pojistka (rozhodnutí provozovatele):** počet zvířat na účet ani měření na zvíře
+    není omezený a registrace je otevřená. Stránka sledování vypisuje všechna měření (tabulka je
+    úplná alternativa grafů): 3 000 denních měření = asi 1,9 MB HTML a 0,6 s, přehled už čte jen
+    nejnovější řádky (§12.11). Má se zavést strop (např. počet měření na zvíře) nebo stránkování
+    tabulky? Je to produktové rozhodnutí; `<desc>` grafu BCS a rozsah osy x jsou už omezené.
 
 ## 12.10 Zabezpečení účtů a zbytková rizika 🛠
 
@@ -332,50 +346,59 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
 ## 12.11 Sledování hmotnosti a kondice (grafy) 🛠
 
 Obrazovka *Sledování hmotnosti a kondice* z docs/08 §8.3 je stránka `/zvirata/<uuid>/hmotnost/`
-(`animals:tracking`). Vede na ni tlačítko *Graf hmotnosti a kondice* a odkaz v sekci měření na
-detailu zvířete a odkaz *Hmotnost a kondice* na kartě přehledu. Drobečky: Přehled › zvíře ›
-Sledování hmotnosti a kondice. Stránka je **jen popisná**: ukazuje, co bylo zapsáno. Nehodnotí
+(`animals:tracking`). Všude se jmenuje **Sledování hmotnosti a kondice** (nadpis, drobečky,
+titulek stránky, tlačítko na detailu zvířete a odkaz na kartě přehledu); na detailu zvířete vede
+na ni jediné tlačítko. Drobečky: Přehled › zvíře › Sledování hmotnosti a kondice. Stránka je **jen popisná**: ukazuje, co bylo zapsáno. Nehodnotí
 vývoj hmotnosti ani kondice, nepočítá žádné míry změny proti prahům a nedává doporučení ke krmení.
 
 | Oblast | Pravidlo |
 |---|---|
 | Oprávnění | `VIEW` přes `get_animal_for` (§12.3): majitel a veterinář s aktivním sdílením 200, ostatní 404, nepřihlášený je přesměrován na přihlášení. Jen metoda GET (POST = 405), stránka se neukládá do mezipaměti prohlížeče |
 | Období | Parametr `?obdobi=` s hodnotami `30`, `90`, `365`, `vse`; výchozí je 90. Jiná hodnota (i chybějící) vrací výchozí období bez chyby. Pevné období je přesně tolik kalendářních dnů končících dnešním dnem (30 dní = dnes a 29 předchozích dnů), *Vše* začíná prvním měřením. Osa x vždy končí dnešním dnem, takže dlouhá pauza od posledního měření je vidět. Přepínač jsou odkazy, zvolené období má `aria-current="true"`, je vyplněné, tučné a označené ✓ |
-| Graf hmotnosti | Čára a body z měření v období, osa y v kg. Rozsah osy pokrývá data **i cílovou hmotnost** (čára je vždy v grafu) a nikdy nejde pod nulu; je nejméně 1 kg nebo 5 % nejvyšší hodnoty široký, aby drobné kolísání nevypadalo jako velká změna (🩺 §12.9, bod 14). Značky osy y jsou kulatá čísla (krok 1, 2 nebo 5 × mocnina deseti), osa x má popisky ve dnech, pondělcích, měsících nebo letech podle délky období (nejvýše 7). Hodnota posledního bodu je popsaná vedle něj |
+| Graf hmotnosti | Čára a body z měření v období, osa y v kg. Rozsah osy pokrývá data **i cílovou hmotnost** (čára je vždy v grafu) a nikdy nejde pod nulu; je nejméně 1 kg nebo 5 % nejvyšší hodnoty široký, aby drobné kolísání nevypadalo jako velká změna (🩺 §12.9, bod 14). Značky osy y jsou kulatá čísla (krok 1, 2 nebo 5 × mocnina deseti), osa x má popisky ve dnech, pondělcích, měsících nebo letech podle délky období (nejvýše 7, v kompaktním rozložení 3). Volba kroku se počítá z délky mřížky, ne z jejích dat, takže stoletý rozsah stojí stejně jako týden. Hodnota posledního bodu je popsaná vedle něj. Čára spojuje zapsaná měření a stránka to říká větou, že mezi nimi nejsou žádná data (§12.9 bod 16) |
+| Dvě rozložení | Každý graf je na stránce **dvakrát**: široké (viewBox 640 × 300 a 640 × 260) od šířky 40 rem a kompaktní (360 × 300 a 360 × 260, text 14 jednotek, nejvýše 3 popisky data, hodnota posledního bodu zarovnaná doprava k okraji, popisek cílové hmotnosti a pásma BCS na dva řádky) pod ní. Vybírá CSS (`display: none`), čtečka obrazovky čte jen viditelný graf. Dřív měl jediný graf `min-width: 30rem` v posuvné oblasti: na telefonu 390 px byla vidět jen levá třetina, **nejnovější měření a hodnota posledního bodu byly mimo obrazovku** a nic neříkalo, že se dá posouvat. Teď se graf vejde (změřeno v prohlížeči: 390 px = měřítko 0,9, text asi 12,6 px; 320 px = 0,7), žádná posuvná oblast kolem něj není |
 | Kdo měření zapsal | **Tvar značky**, ne jen barva: kolečko = majitel, kosočtverec = veterinární lékař (barva se liší navíc). Legenda pod grafem popisuje jen tvary, které jsou nakreslené |
 | Cílová hmotnost | Čárkovaná vodorovná čára s popiskem *cílová hmotnost (orientační)* nebo *cílová hmotnost (potvrzeno veterinářem)* podle `target_weight_status` (docs/05 §5.3) a hodnotou. Nikdy se nenazývá „ideální“. Bez zadané cílové hmotnosti se nekreslí |
-| Graf BCS | Samostatné body (bez spojnice) na celé devítibodové ose 1–9, jen měření, která mají BCS. Podkladem je pásmo 4–5 z 9 (od 3,5 do 5,5), popsané *pásmo 4–5 z 9* a v legendě. Je to vodítko ze škály (docs/05 §5.3), ne hodnocení: text pod grafem říká, že skóre i jeho význam posoudí veterinární lékař. Měření bez BCS graf vynechá |
+| Graf BCS | Samostatné body (bez spojnice) na celé devítibodové ose 1–9, jen měření, která mají BCS. Podkladem je pásmo 4–5 z 9 (od 3,5 do 5,5), popsané *pásmo 4–5 z 9* a v legendě. Text pod grafem říká, **co pásmo je**: střed devítibodové škály, jen vodítko, ne hodnocení zdraví ani doporučený rozsah (docs/05 §5.3, §12.9 bod 13); skóre i jeho význam posoudí veterinární lékař. Měření bez BCS graf vynechá. `<desc>` vypíše skóre jedno po druhém jen do 12 hodnocení, pak jen počet, první a poslední skóre a nejnižší a nejvyšší (dřív 41 000 znaků pro 3 000 skóre; úplný výpis je v tabulce) |
 | Souhrn | Počet měření v období, první a poslední hmotnost s daty, rozdíl v kg a v % (vůči první hmotnosti, na jedno desetinné místo) a počet dní mezi nimi. Věta: *Změna hmotnosti za zvolené období: −1,2 kg (−3,8 %). Zda je změna žádoucí, posoudí veterinární lékař.* Čísla a věta se zobrazí od dvou měření |
 | Více měření v jeden den | Všechna se nakreslí a vypíší; první a poslední hmotnost se řídí pořadím zápisu (poslední zapsané měření dne je „poslední“) |
-| Tabulka | **Vždy** pod grafy: datum, hmotnost, BCS, MCS, posoudil, poznámka, nejnovější nahoře. Obsahuje všechna měření ze zobrazeného období, tedy stejná data jako grafy (MCS jen zde). Počet měření mimo období a odkaz *zobrazit vše* jsou nad tabulkou. E-mail veterináře ve sloupci *Posoudil* vidí jen majitel a veterinář, který měření zapsal (stejné pravidlo jako na detailu, §12.6) |
+| Tabulka | **Vždy** pod grafy: datum, hmotnost, BCS, MCS, posoudil, poznámka, nejnovější nahoře. Obsahuje všechna měření ze zobrazeného období, tedy stejná data jako grafy (MCS jen zde). Počet měření mimo období (větou ve správném pádu: *je další 1 měření*, *jsou další 3 měření*, *je dalších 5 měření*) a odkaz *zobrazit vše* jsou nad tabulkou. Na úzkém displeji se tabulka posouvá do stran: viditelná poznámka to říká, data se nezalamují a oblast se jmenuje *Tabulka měření, posuvná oblast* (jiné jméno než oddíl kolem ní). E-mail veterináře ve sloupci *Posoudil* vidí jen majitel a veterinář, který měření zapsal (stejné pravidlo jako na detailu, §12.6) |
 | Prázdné stavy | Méně než dvě měření v období (graf hmotnosti) nebo méně než dvě hodnocení BCS (graf BCS): místo grafu vysvětlení (žádné měření, jediné měření s hodnotou a datem, měření jen mimo období) a tlačítko *Zapsat měření* na formulář měření. Tabulka zůstává |
-| Dostupnost | Každý graf je `<figure>` s `<svg role="img">`, `<title>` (jméno zvířete a období) a `<desc>` (období, počet měření, první a poslední hmotnost, změna s větou o veterináři, cílová hmotnost, význam tvarů). Grafy jsou v posuvné oblasti s `tabindex="0"` (na úzkém displeji se posouvají do stran, text zůstává čitelný). Nadpisy jdou po úrovních (h1, h2, h3), tabulka je alternativa pro čtečky |
-| Barvy | Barvy jsou vlastnosti CSS (`--chart-*`, světlý i tmavý režim). Značky, čáry a osy mají proti pozadí grafu kontrast nejméně 4,1 : 1 (požadavek 3 : 1; mřížka je jen pomocná a záměrně nenápadná), text grafu nejméně 7 : 1. Dvojice barev značek (majitel a veterinář) prošla kontrolou odlišitelnosti (OKLab, simulace barvosleposti). V režimu vysokého kontrastu se použijí systémové barvy |
-| Bezpečnost | Jméno zvířete se vypisuje jen automaticky escapovanou šablonou (i v `<title>` SVG). Grafy neobsahují inline styly ani skripty (CSP `style-src 'self'`, `script-src 'self'`): vzhled řídí třídy v `app.css`. Texty v SVG jsou čísla, data a pevné popisky, nikdy text zadaný uživatelem |
+| Dostupnost | Každý graf je `<figure>` s `<svg role="img">`, `<title>` (jméno zvířete a období) a `<desc>` (období, počet měření, první a poslední hmotnost, změna s větou o veterináři, věta o spojnici, cílová hmotnost, význam tvarů). Název obrázku je jen `<title>` (`aria-labelledby`), dlouhé shrnutí je popis (`aria-describedby`), takže se nečte dvakrát. Kolem grafu není posuvná oblast, takže tam není ani zbytečná zastávka klávesnice. Nadpisy jdou po úrovních (h1, h2, h3), tabulka je alternativa pro čtečky |
+| Barvy | Barvy jsou vlastnosti CSS (`--chart-*`, světlý i tmavý režim). Značky, čáry a osy mají proti pozadí grafu kontrast nejméně 4,1 : 1 (požadavek 3 : 1; mřížka je jen pomocná a záměrně nenápadná), text grafu nejméně 7 : 1. Hodnoty znovu počítá `tests/backend/test_chart_colours.py` z tokenů v `app.css` (3 : 1 grafika, 4,5 : 1 text, obě schémata). **Barva majitele a veterináře se světlostí téměř neliší** (kontrast mezi nimi 1,4 : 1 ve světlém a 1,1 : 1 v tmavém režimu): rozlišuje je tvar značky, ne barva. Dřívější tvrzení o kontrole odlišitelnosti (OKLab, simulace barvosleposti) v repozitáři nelze ověřit, proto je odstraněno. V režimu vysokého kontrastu se použijí systémové barvy |
+| Bezpečnost | Jméno zvířete se vypisuje jen automaticky escapovanou šablonou (i v `<title>` SVG). Grafy neobsahují inline styly ani skripty (CSP `style-src 'self'`, `script-src 'self'`): vzhled řídí třídy v `app.css`. Viditelné texty v SVG jsou čísla, data a pevné popisky; jediný text zadaný uživatelem je jméno zvířete v `<title>` (escapované) |
 
 **Přehled (dashboard).** Karta od dvou měření ukáže miniaturní graf (skrytý před čtečkami
 obrazovky, `aria-hidden`) z nejnovějších 12 měření a vedle něj text *Vývoj: poslední hmotnost
 21 kg, změna −0,4 kg za 33 dní.* (změna = poslední minus první z těchto měření, dny mezi nimi).
-Přehled načítá měření všech zvířat jedním dotazem (`prefetch_related`), takže počet dotazů nezávisí
-na počtu zvířat (test `django_assert_max_num_queries`). Karta čte všechna měření zvířete, protože
-úroveň upozornění potřebuje poslední BCS a MCS, které mohou být starší než posledních 12 měření:
-omezení na posledních N řádků v databázi by je mohlo skrýt.
+Přehled načítá měření všech zvířat třemi dotazy, takže počet dotazů (5 celkem) nezávisí na počtu
+zvířat ani měření (test `django_assert_max_num_queries` a test počtu dotazů a řádků): *nejnovějších
+12 měření* každého zvířete (okenní funkce `ROW_NUMBER() OVER (PARTITION BY animal_id …)` pro
+miniaturu a poslední hmotnost), *nejnovější měření s BCS* a *nejnovější měření s MCS* (úroveň
+upozornění potřebuje poslední BCS a MCS, které mohou být starší než posledních 12 měření). Počet
+přečtených řádků tedy neroste s historií. Miniatura používá stejný nejmenší rozsah osy jako
+hlavní graf (nejméně 1 kg nebo 5 % nejvyšší hmotnosti): rozdíl 50 g už nevypadá jako úplný
+sklon. Detail zvířete (jedno zvíře) čte všechna měření jako dřív.
 
 **Technika.** Výpočet geometrie je v čistém modulu `animals/charts.py` (vstup: měření, období,
 dnešní datum, volitelně cílová hmotnost se stavem; výstup: neměnné `dataclass`y se body, značkami
 os, souřadnicemi SVG a souhrnem). Dnešní datum dostává jako argument, hodinky nečte. Hmotnosti,
 rozdíly, procenta a hodnoty os jsou `Decimal` s pevným kontextem; `float` je jen v pixelových
 souřadnicích (hlídá `tests/backend/test_backend_static.py`). Souřadnice se v šablonách vypisují
-s `{% localize off %}`, jinak by je české nastavení psalo s desetinnou čárkou.
+s `{% localize off %}`, jinak by je české nastavení psalo s desetinnou čárkou. Sestavení grafu
+odmítne měření mimo období (`ValueError`), takže souřadnice nemohou vyjít mimo plochu grafu.
+Datum měření nesmí být před 1. 1. 1900 (pravidlo modelu i omezení v databázi, migrace `0004`):
+bez dolní meze šlo uložit rok 1 a „Vše“ pak počítalo rozsah dvou tisíciletí.
 
 **Co zatím není.** Trendová upozornění a pravidlo „rychlý úbytek hmotnosti“ (práh musí stanovit
 specialista, §12.9 bod 5), proložená trendová přímka, návrh úpravy energie z docs/05 §5.6 a docs/08
 §8.3 (patří ke kalkulačce), graf svalové kondice (MCS jen v tabulce), připomínky vážení, interaktivní
-popisky (jen prohlížečem zobrazený popisek bodu bez JavaScriptu) a export grafu.
+popisky (jen prohlížečem zobrazený popisek bodu bez JavaScriptu), export grafu, stránkování tabulky a strop počtu měření a zvířat (§12.9 bod 17).
 
 Testy: `tests/backend/test_animals_charts.py` (čisté funkce a vlastnosti `hypothesis`: souřadnice
 uvnitř oblasti grafu, x neklesá s datem, značky os pokrývají data, deterministický výstup),
-`tests/backend/test_animals_tracking.py` (oprávnění, období, atributy SVG, tabulka, tvary značek,
-popisek cílové hmotnosti, prázdné stavy, XSS) a `tests/backend/test_animals_dashboard.py`
-(sparkline, počet dotazů).
+`tests/backend/test_animals_tracking.py` (oprávnění, období, atributy SVG, dvě rozložení, tabulka,
+tvary značek, popisek cílové hmotnosti, prázdné stavy, XSS, počet dotazů stránky),
+`tests/backend/test_animals_dashboard.py` (sparkline, počet dotazů i řádků, starší BCS a MCS) a
+`tests/backend/test_chart_colours.py` (kontrast barev grafů).
 

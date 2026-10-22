@@ -10,5 +10,5 @@
     {% if show_owner %}<div><dt>Majitel</dt><dd>{{ summary.animal.owner.email }}</dd></div>{% endif %}
   </dl>
   {% if summary.trend %}{% include "animals/includes/sparkline.html" with trend=summary.trend %}{% endif %}
-  <p class="card__links"><a href="{% url 'animals:tracking' summary.animal.uuid %}">Hmotnost a kondice<span class="visually-hidden"> – {{ summary.animal.name }}</span></a></p>
+  <p class="card__links"><a href="{% url 'animals:tracking' summary.animal.uuid %}">Sledování hmotnosti a kondice<span class="visually-hidden"> – {{ summary.animal.name }}</span></a></p>
 </li>

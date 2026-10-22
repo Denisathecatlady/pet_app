@@ -146,7 +146,7 @@ class MeasurementForm(forms.ModelForm):
         empty_value=None,
         required=False,
         help_text=(
-            "Devítibodová škála: 1 = vyhublé, 4–5 = ideální kondice, 9 = těžká obezita. "
+            "Devítibodová škála: 1 = vyhublé, 4–5 = střed škály, 9 = těžká obezita. "
             "Pokud si nejste jistí, nechte nezadané nebo se poraďte s veterinárním lékařem."
         ),
     )

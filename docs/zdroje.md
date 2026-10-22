@@ -41,13 +41,13 @@ proběhlo přes webové vyhledávání nad abstrakty, stránkami vydavatelů a s
 
 | Klíč | Zdroj | Rok | DOI / URL | Typ, úroveň | Druh, fáze | Ověření |
 |---|---|---|---|---|---|---|
-| `[FEDIAF2025]` | FEDIAF – The European Pet Food Industry Federation. *Nutritional Guidelines for Complete and Complementary Pet Food for Cats and Dogs.* Brusel. | září 2025 | https://europeanpetfood.org/wp-content/uploads/2025/09/FEDIAF-Nutritional-Guidelines_2025-ONLINE.pdf | Průmyslová doporučení, recenzovaná nezávislou vědeckou radou (Scientific Advisory Board). L1. **Právně nezávazná.** | Psi a kočky. Dospělí, růst, reprodukce. | B; struktura tabulek S/P (viz níže) |
+| `[FEDIAF2025]` | FEDIAF – The European Pet Food Industry Federation. *Nutritional Guidelines for Complete and Complementary Pet Food for Cats and Dogs.* Brusel. | září 2025 | https://europeanpetfood.org/wp-content/uploads/2025/09/FEDIAF-Nutritional-Guidelines_2025-ONLINE.pdf | Průmyslová doporučení, recenzovaná nezávislou vědeckou radou (Scientific Advisory Board). L1. **Právně nezávazná.** | Psi a kočky. Dospělí, růst, reprodukce. | B; struktura tabulek S (viz níže) |
 | `[FEDIAF2024]` | Totéž, verze 2024 (předchozí vydání, pro historii verzí). | červenec 2024 | https://europeanpetfood.org/wp-content/uploads/2024/09/FEDIAF-Nutritional-Guidelines_2024.pdf (zrcadlo: ukpetfood.org) | L1 | Psi a kočky | B |
 | `[NRC2006]` | National Research Council. *Nutrient Requirements of Dogs and Cats.* Washington, DC: The National Academies Press. | 2006 | https://nap.nationalacademies.org/catalog/10668 (DOI 10.17226/10668, DOI zatím neověřen) | Vědecká monografie (Ad Hoc Committee on Dog and Cat Nutrition). L1 | Psi a kočky. Všechny fáze. | B; vybrané rovnice S |
 | `[AAFCO2014]` | AAFCO. *Dog and Cat Food Nutrient Profiles* (revize 2014, v Official Publication od roku 2016). Pet Food Report 2014, Appendix A. | 2014 | https://www.aafco.org/wp-content/uploads/2023/01/Pet_Food_Report_Annual_2014-Appendix_A-Revised_AAFCO_Nutrient_Profiles-Final_092214.pdf | Regulační profily (USA, přes legislativu států). L1 | Psi a kočky. Profily „Growth & Reproduction" a „Adult Maintenance". | B; limit Ca pro velká plemena S |
 | `[WSAVA2011]` | Freeman L, Becvarova I, Cave N, et al. WSAVA Nutritional Assessment Guidelines. *J Small Anim Pract.* 2011;52(7):385–396. | 2011 | https://wsava.org/global-guidelines/global-nutrition-guidelines/ | Doporučený postup hodnocení výživy. L1 | Psi a kočky | B, A |
 
-**Co je ověřeno z `[FEDIAF2025]` (stav S/P, přes vyhledávání v textu PDF):**
+**Co je ověřeno z `[FEDIAF2025]` (stav S: z výpisů vyhledávače, originální PDF nebylo otevřeno):**
 - Edice 2025 vyšla v září 2025. Novinka FEDIAF z 8. 9. 2025 uvádí upravené nutriční tabulky a zpřesněné přílohy.
 - Tabulky pro psy vycházejí z denního příjmu energie **95 nebo 110 kcal ME/kg BW^0,75**.
   Pro kočky z **75 nebo 100 kcal ME/kg BW^0,67**.

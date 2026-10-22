@@ -218,8 +218,13 @@ def tracking(request: HttpRequest, animal_uuid: UUID) -> HttpResponse:
         "weight_description": charts.describe_weight_chart(data.weight),
         "bcs_description": charts.describe_bcs_chart(data.bcs),
         "change_sentence": charts.change_sentence(data.weight.summary),
+        "gap_sentence": charts.GAP_SENTENCE,
+        "weight_compact": data.weight_compact,
+        "bcs_compact": data.bcs_compact,
         "rows": list(reversed(data.measurements)),
-        "outside_period": len(measurements) - len(data.measurements),
+        "outside_sentence": charts.outside_period_sentence(
+            len(measurements) - len(data.measurements)
+        ),
         "total": len(measurements),
     }
     return render(request, "animals/tracking.html", context)

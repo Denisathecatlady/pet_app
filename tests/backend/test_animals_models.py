@@ -1,7 +1,7 @@
 """Models of the animals app: validation, DB constraints, history and the condition catalog."""
 
 import importlib
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -12,6 +12,7 @@ from django.db.models import ProtectedError
 from django.utils import timezone
 
 from animals.models import (
+    MEASUREMENT_DATE_MIN,
     WEIGHT_BOUNDS_KG,
     Animal,
     AnimalHealthCondition,
@@ -302,6 +303,36 @@ def test_measurement_date_not_in_future(user, make_animal):
     assert assert_clean_error(measurement, "measured_on") == [
         "Datum měření nemůže být v budoucnosti."
     ]
+
+
+@pytest.mark.parametrize("measured_on", [date(1, 1, 1), date(1, 1, 2), date(1899, 12, 31)])
+def test_measurement_date_has_a_lower_bound(user, make_animal, measured_on):
+    """Without a bound a date in year 1 was accepted for an animal with no (or an estimated)
+    birth date, and the "all" period of the tracking page laid out two millennia."""
+    for animal in (
+        make_animal(user, name="Bez data"),
+        make_animal(
+            user, name="Odhad", birth_date=TODAY() - timedelta(days=900), birth_date_estimated=True
+        ),
+    ):
+        measurement = BodyMeasurement(
+            animal=animal, measured_on=measured_on, weight_kg=Decimal("20"), assessed_by="OWNER"
+        )
+        assert assert_clean_error(measurement, "measured_on") == [
+            "Datum měření musí být 1. 1. 1900 nebo pozdější."
+        ]
+        assert_db_rejects(measurement)  # the database says the same
+
+
+def test_measurement_date_bound_is_inclusive(user, make_animal):
+    animal = make_animal(user)
+    assert MEASUREMENT_DATE_MIN.isoformat() == "1900-01-01"
+    BodyMeasurement(
+        animal=animal,
+        measured_on=MEASUREMENT_DATE_MIN,
+        weight_kg=Decimal("20"),
+        assessed_by="OWNER",
+    ).full_clean()
 
 
 @pytest.mark.parametrize("estimated", [False, True])

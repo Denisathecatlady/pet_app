@@ -5,6 +5,8 @@
 > *Knihovna zdrojů* v [08](08-uzivatelske-rozhrani.md) §8.3). **Jediným zdrojem pravdy je registr
 > [zdroje.md](zdroje.md).** Knihovna neobsahuje žádné nutriční, energetické ani dávkovací hodnoty
 > vlastní; nic nepočítá a nic nedoporučuje (kalkulačka je odložená, [12](12-ucty-a-zvirata.md) §12.7).
+> **Číslo 13 nese i [13-nasazeni-a-provoz.md](13-nasazeni-a-provoz.md)** (provoz a zálohy, vlastní
+> oddíly §13.x); na obě kapitoly proto odkazujeme vždy celým názvem souboru.
 > Legenda: ✅ ověřeno · 🟡 ověřit · 🛠 pracovní návrh · 🩺 posoudí vet. nutriční specialista.
 
 ## 13.1 Rozsah 🛠
@@ -29,16 +31,16 @@ jen GET a HEAD.
 
 | Stránka | Obsah |
 |---|---|
-| `/zdroje/` (`catalog:source_list`) | Výrazný **pruh**: *Zdroj v knihovně není automaticky ověřený v originále* (srozumitelně: zdroj může být uvedený, i když se nepodařilo ověřit jeho obsah v původním dokumentu; podívejte se na stav ověření; zjištění jsou popis zdroje, ne návod ke krmení). Hledání a filtry. Seznam po 25 zdrojích. **Legenda.** Blok *Co zatím chybí* |
-| `/zdroje/<klíč>/` (`catalog:source_detail`) | Pruh, **stav ověření** (značka, přesný význam, značky registru, *co přesně bylo ověřeno*, datum), všechna pole zdroje, hlavní zjištění, omezení, legenda. Neznámý klíč: 404 (klíč se rozlišuje podle velikosti písmen) |
+| `/zdroje/` (`catalog:source_list`) | Úvod: registr zdrojů projektu; **zdroje zatím nejsou v aplikaci k ničemu použité**, výskyt v seznamu neznamená, že z nich aplikace vychází. Výrazný **pruh**: *Zdroj v knihovně není automaticky ověřený v originále* (srozumitelně: zdroj může být uvedený, i když se nepodařilo ověřit jeho obsah v původním dokumentu; podívejte se na stav ověření; zjištění jsou popis zdroje, ne návod ke krmení). Hledání a filtry. Seznam po 25 zdrojích (u každého typ i upřesnění typu z registru, např. *Průmyslová doporučení*, bez slov, která jen opakují název typu). **Legenda.** Blok *Co zatím chybí* |
+| `/zdroje/<klíč>/` (`catalog:source_detail`) | Pruh, **stav ověření** (značka, přesný význam, značky registru, *poznámka k ověření v registru*, datum), všechna pole zdroje, hlavní zjištění, omezení, legenda. U zdrojů se stavem B, S nebo bez značky stojí **upozornění** u poznámky, u jednotek a podmínek a u hlavních zjištění: čísla a zjištění jsou opsaná z registru a nejsou ověřená v původním zdroji (stav A a P upozornění nemají). DOI, které registr označuje jako neověřené, má vedle sebe poznámku. Neznámý klíč: 404 (klíč se rozlišuje podle velikosti písmen) |
 
 **Filtry a hledání** (vše volitelné; adresy jsou česky, hodnoty jsou kódy modelu):
 
 | Parametr | Význam | Povolené hodnoty |
 |---|---|---|
 | `q` | text v klíči, názvu a autorech; každé slovo se musí najít (velikost písmen se nerozlišuje), nejvýše 5 slov a 100 znaků | libovolný text |
-| `uroven` | úroveň důkazů | `L1` až `L6` |
-| `druh` | druh zvířat, **přesná hodnota** (zdroje o psech i kočkách jsou pod `BOTH`) | `DOG`, `CAT`, `BOTH`, `NOT_APPLICABLE` |
+| `uroven` | úroveň odbornosti zdroje (registr: *Úrovně odbornosti zdroje*; v kódu `evidence_level`) | `L1` až `L6` |
+| `druh` | druh zvířat. `DOG` ukáže zdroje o psech **i zdroje o psech i kočkách** (`BOTH`), `CAT` totéž pro kočky; `BOTH` a `NOT_APPLICABLE` jsou přesné hodnoty. Dřív byla volba „psi“ přesná a skrývala hlavní doporučení (FEDIAF, NRC, AAFCO, WSAVA), která jsou o obou druzích | `DOG`, `CAT`, `BOTH`, `NOT_APPLICABLE` |
 | `typ` | typ zdroje | kódy `SourceType` |
 | `overeni` | stav ověření | `B`, `A`, `P`, `S`, `NONE` |
 | `strana` | strana seznamu | celé číslo ≥ 1 |
@@ -53,18 +55,30 @@ stylem čáry (plná, tečkovaná, čárkovaná), takže nic nestojí jen na bar
 
 | Stav | Ikona | Barva | Text |
 |---|---|---|---|
-| `P` | ✓ | zelená | P – ověřeno v primárním zdroji |
+| `P` | ✓ | zelená | P – ověřena hodnota nebo tabulka v primárním zdroji |
 | `A` | ◆ | modrá | A – ověřen abstrakt nebo souhrn |
 | `S` | ◇ | jantarová | S – ověřeno jen přes sekundární zdroj |
 | `B` | ○ | jantarová, tečkovaný rámeček | B – ověřeny jen bibliografické údaje |
 | `NONE` | ? | šedá, čárkovaný rámeček | Neověřeno |
 
 Legenda pod těmito krátkými názvy uvádí **přesné významy** z registru (*Jak číst sloupec
-Ověření*) a **úrovně L1 až L6** (*Úrovně odbornosti zdroje*) a odstavec o tom, jak rešerše
-proběhla. Zrcadlí ji štítky `VerificationLevel` a `EvidenceLevel`; test je porovnává s dokumentem.
+Ověření*) od nejvyššího stavu (P, A, S, B, neověřeno), **úrovně odbornosti L1 až L6** (*Úrovně
+odbornosti zdroje*), odstavec o tom, jak rešerše proběhla (čtenářsky: datum, že plné texty nešlo
+stáhnout a že ověření šlo přes abstrakty, stránky vydavatelů a sekundární zdroje; síťová politika
+a seznam blokovaných domén zůstávají v dokumentu), pravidlo registru *bez stavu P žádná hodnota do
+databáze, S a – jen jako orientace* a krátké vysvětlení *O textech u zdrojů* (texty jsou opsané
+z interního registru, „doplnit“ a „ověřit“ jsou otevřené úkoly, odkazy na soubory projektu a věty
+v první osobě pocházejí od vývojářů). Štítek zdroje s více značkami ukazuje **nejvyšší dosaženou
+značku**; pořadí je pracovní a legenda to říká (🩺 §13.8). Zrcadlí ji štítky `VerificationLevel` a
+`EvidenceLevel`; test je porovnává s dokumentem. Krátké názvy stavů a úrovní hlídá nezávislá
+tabulka literálů (`test_catalog_display.py`): záměna dvou stavů nebo úrovní testy neprojde.
 
 **Soukromí.** `verified_by` odkazuje na účet kurátora. Veřejná stránka ukáže jen *kurátor
-aplikace (jméno se veřejně nezobrazuje)*, nikdy jméno ani e-mail. Odkazy na externí stránky mají
+aplikace (jméno se veřejně nezobrazuje)*, nikdy jméno ani e-mail. V administraci pole `verified_by`
+**není formulářové pole** (dřív bylo `raw_id_fields`, které vypsalo e-mail libovolného účtu podle
+zadaného čísla, takže kurátor bez práv k účtům mohl číst adresy majitelů a veterinářů): administrace
+ho nastaví sama, na účet přihlášeného zaměstnance, když se změní stav, značky, poznámka nebo datum
+ověření, a vymaže ho u stavu *neověřeno*. Formulář ukazuje jen *zaznamenán kurátor / nezaznamenán*. Odkazy na externí stránky mají
 `rel="noopener noreferrer external"`, odkaz se vypíše jen pro adresy `http://` a `https://`
 (hlídá i omezení v databázi), texty se escapují (žádné inline skripty ani styly, CSP).
 
@@ -73,7 +87,7 @@ aplikace (jméno se veřejně nezobrazuje)*, nikdy jméno ani e-mail. Odkazy na 
 | Pole | Poznámka |
 |---|---|
 | `citation_key` | jedinečný slug (`FEDIAF2025`, `PNA-RER`); jedinečný i bez ohledu na velikost písmen; začíná písmenem nebo číslicí |
-| `title`, `authors_or_org` | název a autoři; autoři mohou být prázdní (u pěti zdrojů registr píše „autory doplnit“) |
+| `title`, `authors_or_org` | název a autoři; autoři mohou být prázdní (u pěti zdrojů registr autory neuvádí: čtyři mají poznámku „autory doplnit“, `[PuppyIntake2019]` „bibliografii doplnit“) |
 | `year` | 1900 až letošní rok + 1 (hlídá validátor; databáze má hrubé meze 1900–2100). **Může být prázdný** (viz níže) |
 | `publication_details` | **navíc:** časopis, ročník, strany, vydavatel, identifikátory PubMed a PMC, zrcadlo souboru |
 | `doi`, `url` | DOI bez adresy (`10.xxxx/…`), odkaz jen `http(s)` |
@@ -126,7 +140,7 @@ neupravuje, nepřidává ani nevynechává** (test porovnává slova dokumentu a
 |---|---|
 | autoři / organizace, název | `authors_or_org`, `title` (název bez závěrečné tečky) |
 | časopis, ročník, strany, vydavatel, PubMed, PMC, zrcadlo | `publication_details` |
-| *Rok* (nebo rok v buňce *Zdroj*) | `year`; „září 2025“ → 2025, „2019?“ → 2019 (otazník je v `limitations`), „–“ → prázdný |
+| *Rok* (nebo rok v buňce *Zdroj*) | `year`; „září 2025“ → 2025, „–“ → prázdný, **„2019?“ → prázdný** (rok, o kterém registr pochybuje, se nevydává za jistý; otazník a hodnota jsou v `limitations`) |
 | datum a verze vydání | `edition_version` |
 | URL, DOI | `url`; `doi` jen tam, kde ho registr uvádí (též v adrese `doi.org`) |
 | *Typ, úroveň* | `evidence_level` (`L1`…`L6`), `source_type` podle úrovně a slov v buňce, upřesnění do `type_note` |
@@ -143,31 +157,42 @@ neupravuje, nepřidává ani nevynechává** (test porovnává slova dokumentu a
   to **nejsilnější značka v pořadí P > A > S > B**: značka sekundárního zdroje (S) říká o obsahu
   víc než samotná bibliografie (B), abstrakt (A) víc než sekundární zdroj, primární zdroj (P) nejvíc.
   Všechny značky zůstávají v `verification_markers` a stránka je vypisuje. 🩺 Pořadí potvrdí specialista.
-- **`S/P` u `[FEDIAF2025]`** („struktura tabulek S/P“) registr nerozhodl; počítá se **slabší
-  značka, S**. Text „S/P“ zůstává v `verification_note`. Plné tabulky FEDIAF nebyly ověřeny.
+- **`[FEDIAF2025]` má značku S.** Dříve registr uváděl „S/P“ (nerozhodnuto). Hodnoty byly ale jen
+  přečtené z výpisů vyhledávače z textu PDF a originál nebyl otevřen, proto platí **S** a registr
+  i dokumenty 03 a 05 to teď říkají stejně. Plné tabulky FEDIAF nebyly ověřeny.
 - **Zdroj bez značky má stav `NONE`:** `[SciRep2025]` („Existence ověřena“) a oddíl 6
   (`[USDA-FDC]`, `[CIQUAL]`, `[NutriDB-CZ]`) nemají v registru žádnou z B, A, P, S; kurátor jim
   může značku přidělit po ověření. Text registru zůstává ve `verification_note` a stránka u nich
   říká, že registr žádnou značku nepřiřazuje. Datum ověření mají jen zdroje se značkou.
 - **Datum ověření:** všem zdrojům se značkou je přiřazeno **18. 10. 2026**, protože registr říká
   „Rešerše proběhla 18. 10. 2026“. `verified_by` je prázdné (registr nikoho nejmenuje).
-- Žádný zdroj zatím nemá značku **P**: plné texty nebyly dostupné (registr, *Jak číst sloupec
-  Ověření*). Připomínka z registru: *do databáze nutričních standardů ani surovin se nesmí dostat
-  žádná hodnota bez stavu P*; knihovna žádné takové hodnoty neobsahuje.
+- Žádný zdroj zatím nemá v knihovně značku **P**: plné texty nebyly dostupné (registr, *Jak číst
+  sloupec Ověření*). Připomínka z registru: *do databáze nutričních standardů ani surovin se nesmí
+  dostat žádná hodnota bez stavu P*; knihovna žádné takové hodnoty neobsahuje.
+  Dokumenty [03](03-nutricni-pozadavky.md) §3.3 a [05](05-energeticky-model.md) §5.3 označovaly
+  hodnoty `[FEDIAF2025]` (95 a 110, 75 a 100 kcal ME, Ca:P 2:1) dříve jako ✅ P. To bylo opraveno
+  na ✅ S (viz poznámky v obou dokumentech). Věta „žádný zdroj nemá P“ znamená jen, že registr
+  žádné P nepřiznal. Neznamená, že je všechno v pořádku.
 
 **Druh a fáze.** U oddílu 1 je zapsal registr. U ostatních zdrojů se **druh určuje z názvu zdroje**
+
 (`dog(s)`, `canine`, `cat(s)`, `feline`, *terrier*, *Great Danes*…; oba druhy → `BOTH`),
 u databází potravin je `NOT_APPLICABLE`; fáze se uvádějí jen tehdy, když je název nebo text
 registru výslovně nese (*adult*, *maintenance*, *growth*, *gestation*, *lactation*, „dospělí“,
 „dospělý pes“; *maintenance* se bere jako `ADULT`, *gestation* a *lactation* jako
-`REPRODUCTION`). Prázdný seznam znamená „neuvedeno“. 🩺 U tří zdrojů název druh neuvádí a rozhodlo
+`REPRODUCTION`). Prázdný seznam znamená „neuvedeno“. Druh a fáze všech 32 zdrojů z oddílů 2 až 6 jsou prověřené po jednom a
+zapsané v `DERIVED_SCOPE` v `test_catalog_sync.py`: změna v datech vyžaduje vědomou úpravu testu. 🩺 U tří zdrojů název druh neuvádí a rozhodlo
 se takto: `[Wikivet]` a `[PNA-RER]` jsou `BOTH` (obecná sekundární literatura o zvířatech), `[MDPI2025]`
 je `DOG`, protože registr z ní přebírá jen kategorie aktivity psů.
 
 **Čísla v poznámkách.** Poznámky k ověření a zjištění opisují registr včetně jeho čísel (např. energetický
 základ tabulek FEDIAF u `[FEDIAF2025]`, kategorie aktivity psů u `[MDPI2025]`, obsah Ca a P u
 `[SciRep2025]`). Jsou to **popis zdroje a stavu jeho ověření, ne doporučení**; stránka to u hlavních
-zjištění i v pruhu říká. Knihovna je nepoužívá k žádnému výpočtu.
+zjištění i v pruhu říká a u zdrojů, jejichž obsah nebyl ověřen v originále (B, S, bez značky), je
+vedle poznámky, jednotek a zjištění **upozornění** ze stavu zdroje. Knihovna je nepoužívá k žádnému
+výpočtu. U `[FEDIAF2025]` je odstavec *Co je ověřeno* rozdělený do `verification_note`,
+`units_and_conditions` a `limitations` (slova se nemění a hlídá je test); stav S platí pro celý
+odstavec a stránka ho u jednotek ukazuje upozorněním podle stavu zdroje.
 
 **Opsáno beze změny:** překlep v registru „u rostoucích dog“ (`[Hazewinkel1985]`) a větu v první
 osobě „proto je nepřebírám“ (`[SciRep2025]`) se neopravovaly; opravit je lze v dokumentu i v souboru.
@@ -201,9 +226,10 @@ zdroje nepřepisuje). Test ověřuje, že příkaz po migraci nenajde žádný r
 |---|---|
 | `test_catalog_models.py` | validace a omezení databáze (rok, klíč, DOI, URL, výčty, pravidla ověření, typ × úroveň), pořadí, historie, smazání účtu s `verified_by` |
 | `test_catalog_loader.py` | `load_sources`: úplnost (37), idempotence, aktualizace, nikdy nemaže, `--dry-run`, chyby souboru nic nezapíšou, **datová migrace na čisté databázi** |
-| `test_catalog_sync.py` | **shoda s `docs/zdroje.md`**: stejná množina klíčů, roky, značky a stav ověření, úroveň, URL, DOI; slova v obou směrech; legendy; blok *Co zatím chybí*; citace v ostatních dokumentech jen registrovaných klíčů |
-| `test_catalog_views.py` | veřejný přístup, filtry, hledání, stránkování, nepovolené parametry, 404, XSS, legenda a pruh, ikona + text + barva, stálý počet dotazů |
-| `test_catalog_admin_gdpr.py` | administrace, export osobních údajů (oddíl `catalog`), smazání účtu ověřovatele (stránkou i v administraci) |
+| `test_catalog_sync.py` | **shoda s `docs/zdroje.md`**: stejná množina klíčů, roky (rok s otazníkem je prázdný), značky, stav ověření a **datum ověření = den rešerše z dokumentu**, úroveň, URL, DOI (a které DOI registr označuje jako neověřené); prověřený druh a fáze oddílů 2 až 6; slova v obou směrech; legendy, odstavec o rešerši a pravidlo registru na stránce; blok *Co zatím chybí*; citace v ostatních dokumentech jen registrovaných klíčů |
+| `test_catalog_views.py` | veřejný přístup, filtry (volba „psi“ zahrnuje zdroje o obou druzích), hledání, stránkování, nepovolené parametry, 404, XSS, legenda a pruh, ikona + text + barva, upozornění u neověřených čísel, rok s otazníkem, DOI, stálý počet dotazů |
+| `test_catalog_display.py` | **nezávislá tabulka literálů** ikon, tříd a názvů stavů ověření a úrovní (záměna dvou stavů nebo úrovní ji neprojde), shoda štítku a věty pod ním na detailu, upozornění podle stavu |
+| `test_catalog_admin_gdpr.py` | administrace (kurátor bez práv k účtům nečte cizí e-maily, `verified_by` nastavuje administrace), export osobních údajů (oddíl `catalog`), smazání účtu ověřovatele (stránkou i v administraci) |
 
 ## 13.7 Co zatím není 🛠
 
@@ -219,14 +245,24 @@ zdroje nepřepisuje). Test ověřuje, že příkaz po migraci nenajde žádný r
 
 Specialista:
 
-1. Pořadí značek ověření pro stav zdroje s více značkami (P > A > S > B, §13.4) a zacházení
-   s `S/P` u `[FEDIAF2025]` jako se `S`.
+1. Pořadí značek ověření pro stav zdroje s více značkami (P > A > S > B, §13.4). Hodnoty z
+   `[FEDIAF2025]` jsou ✅ S ve všech dokumentech i v kódu `nutricalc`, dokud je specialista neověří
+   v originále.
 2. Zdroje bez značky (`[SciRep2025]` a oddíl 6) jsou `NONE`. Mají dostat značku?
 3. Zařazení druhu u `[Wikivet]`, `[PNA-RER]`, `[MDPI2025]` a životních fází odvozených z názvů (§13.4).
 4. Texty pruhu a legendy (srozumitelnost pro majitele), krátké názvy úrovní (*doporučení instituce*,
    *kazuistika*…) a názvy stavů ověření.
 5. Zda mají poznámky u zdrojů obsahovat čísla (energetický základ FEDIAF, kategorie aktivity,
-   Ca a P) v takové podobě, nebo se na veřejné stránce zkrátit.
+   Ca a P) v takové podobě, nebo se na veřejné stránce zkrátit. Zejména zda se mají veřejně
+   ukazovat čísla ze zdrojů bez značky nebo se značkou S (`[SciRep2025]`, `[MDPI2025]`); stránka je
+   zatím ukazuje s upozorněním, že nejsou ověřená.
+6. Zda se mají v registru (a v souboru) přeformulovat poznámky, které jsou pracovními
+   úkoly nebo mluví v první osobě (`[FEDIAF2025]`: „Viz postup importu v 03-nutricni-pozadavky.md“,
+   `[SciRep2025]`: „proto je nepřebírám“, `[PuppyIntake2019]`: „bibliografii doplnit“). Texty se
+   opisují beze změny; stránka to vysvětluje v legendě (*O textech u zdrojů*).
+7. Zda má zdroj, u kterého registr píše „Existence ověřena“ a žádnou značku (`[SciRep2025]`,
+   `[NutriDB-CZ]`), dostat značku B. Do rozhodnutí je neověřený a stránka vysvětluje, že
+   poznámka říká nanejvýš, že zdroj existuje.
 
 Právník:
 

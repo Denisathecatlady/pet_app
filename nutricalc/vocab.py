@@ -160,7 +160,7 @@ class DataScope(StrEnum):
 
 
 # Exponent metabolické hmotnosti: pes BW^0,75, kočka BW^0,67
-# ([FEDIAF2025], docs/05 §5.1, docs/03 §3.3), stav ✅ P.
+# ([FEDIAF2025], docs/05 §5.1, docs/03 §3.3), stav ✅ S.
 METABOLIC_EXPONENT: Final = MappingProxyType(
     {Species.DOG: Decimal("0.75"), Species.CAT: Decimal("0.67")}
 )

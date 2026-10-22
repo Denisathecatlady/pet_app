@@ -232,3 +232,15 @@ def test_restore_test_refuses_an_unusable_protocol_path(workspace, golden_backup
     ):
         assert result.returncode == 2, result.stderr
     assert not (workspace.root / "elsewhere.log").exists()
+
+
+def test_restore_test_against_a_remote_server_needs_tls(workspace, golden_backup, source_db):
+    workspace.install_copy_of(golden_backup)
+
+    result = workspace.run(
+        "restore_test.sh", database=source_db, POSTGRES_HOST="db.example.invalid"
+    )
+
+    assert result.returncode == 2
+    assert "PGSSLMODE" in result.stderr
+    assert not workspace.log_file.exists(), "a configuration error writes no protocol line"
