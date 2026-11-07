@@ -15,18 +15,24 @@ DEBUG = False
 ALLOWED_HOSTS: list[str] = []
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    # The administration site. Replaces "django.contrib.admin": the same app with the site
+    # class backoffice.admin_site.BarfAdminSite (verified second factor, access log).
+    "backoffice.admin_apps.BarfAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
     "simple_history",
     "axes",
     "core",
     "accounts",
     "animals",
     "catalog",
+    "backoffice",
     # Further project apps (recipes, analyses, …) are added below as they are built.
 ]
 
@@ -37,8 +43,14 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "core.middleware.NoStoreForSignedInUsersMiddleware",
+    # django-otp: request.user.is_verified() is true once the session passed the second factor.
+    "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    # Staff session limits, then the two-factor gate (docs/14 §14.5, §14.6). They need the
+    # user, the session and the messages, so they come after those three.
+    "accounts.middleware.StaffSessionPolicyMiddleware",
+    "accounts.middleware.TwoFactorEnforcementMiddleware",
+    "core.middleware.NoStoreForSignedInUsersMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "simple_history.middleware.HistoryRequestMiddleware",
     # django-axes 8: AxesMiddleware must be the last middleware.
@@ -111,6 +123,10 @@ ACCOUNT_EMAIL_IN_BACKGROUND = False
 # Registrations not activated within this time are deleted by
 # ``manage.py purge_pending_accounts`` (working value, docs/12 §12.8 for the lawyer).
 PENDING_ACCOUNT_RETENTION = timedelta(days=7)
+# The standard period for answering a request of a data subject, in calendar months from the day
+# it was received (accounts.deadlines.default_due_date). WORKING VALUE: the lawyer decides the
+# period, when it may be extended and who must be told (docs/12 §12.8, docs/14 §14.12).
+DATA_SUBJECT_REQUEST_PERIOD_MONTHS = 1
 
 # --- Login rate limiting (django-axes 8) --------------------------------------------------
 LOGIN_FAILURE_LIMIT = 5
@@ -140,6 +156,31 @@ AXES_SENSITIVE_PARAMETERS = [
 # Behind a proxy it must be set (prod.py refuses 0 with a proxy SSL header): otherwise every
 # client has the proxy's address and the lockout applies to the e-mail alone.
 TRUSTED_PROXY_COUNT = 0
+
+# --- Administration: address, staff sessions, second factor, access log (docs/14) ----------
+# Path of the administration below the site root: with a trailing slash, no leading slash.
+# The default is for development and tests only; prod.py requires DJANGO_ADMIN_URL with a
+# value that is hard to guess (docs/14 §14.4).
+ADMIN_URL = "admin/"
+# A signed-in staff user is signed out after this many seconds without a request, and after
+# this many seconds since the password sign-in whatever they do (accounts.session_policy).
+STAFF_SESSION_IDLE_SECONDS = 30 * 60
+STAFF_SESSION_MAX_SECONDS = 12 * 60 * 60
+# Staff users must set up and pass two-factor authentication to use anything (accounts.
+# two_factor). Development may switch it off through the environment; prod.py refuses to start
+# when it is false.
+REQUIRE_2FA_FOR_STAFF = True
+# django-otp: the name shown in the authenticator app, and the back-off after a failed code.
+# After n failed codes in a row the next attempt is possible after FACTOR * 2**(n-1) seconds
+# (2, 4, 8, ... s) and a failed attempt during the wait is not counted; a correct code resets
+# it. Separate counters for the authenticator device and for the recovery codes.
+OTP_TOTP_ISSUER = "BARF Nutri"
+OTP_TOTP_THROTTLE_FACTOR = 2
+OTP_STATIC_THROTTLE_FACTOR = 2
+# Records in the access log of the administration (backoffice.AdminAccessLog) older than this
+# are deleted by ``manage.py purge_admin_access_log``. WORKING VALUE: the lawyer decides
+# (docs/12 §12.8 point 5 and 13).
+ADMIN_ACCESS_LOG_RETENTION_DAYS = 365
 
 # --- Sessions, cookies and browser security -----------------------------------------------
 SESSION_COOKIE_HTTPONLY = True

@@ -35,6 +35,7 @@ Aplikace (`config.settings.prod`) čte vše citlivé z proměnných prostředí 
 |---|---|---|
 | `DJANGO_SECRET_KEY` | ano | Náhodná hodnota, alespoň 50 znaků (`django.core.management.utils.get_random_secret_key()`). Při změně se odhlásí všichni uživatelé |
 | `DJANGO_ALLOWED_HOSTS` | ano | Názvy serveru oddělené čárkou, např. `barf.example.cz`. Jiná hlavička `Host` dostane odpověď 400 |
+| `DJANGO_ADMIN_URL` | ano | Těžko uhodnutelná cesta administrace, např. `sprava-x7k2q9m4/`: nesmí být `admin/`, musí končit lomítkem a nesmí začínat lomítkem ([14](14-administrace.md) §14.4). Bez ní aplikace nenastartuje |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST` | ano | Připojení k PostgreSQL |
 | `POSTGRES_PORT` | ne | Výchozí 5432 |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | ne | Původy s `https://`, ze kterých se smí odesílat formuláře (za proxy obvykle `https://barf.example.cz`) |
@@ -47,8 +48,10 @@ Aplikace (`config.settings.prod`) čte vše citlivé z proměnných prostředí 
 | `DJANGO_EMAIL_HOST_USER`, `DJANGO_EMAIL_HOST_PASSWORD` | ne | Přihlášení k SMTP |
 | `DJANGO_EMAIL_USE_TLS`, `DJANGO_EMAIL_USE_SSL` | ne | Výchozí `true` a `false`; nelze zapnout obě |
 | `DJANGO_DEFAULT_FROM_EMAIL` | ne | Odesílatel, např. `BARF Nutri <noreply@barf.example.cz>` |
-| `DJANGO_CONTACT_EMAIL` | ne | Adresa správce, kterou aplikace ukazuje uživatelům (např. žádost o roli `vet`) |
+| `DJANGO_CONTACT_EMAIL` | ne | Adresa správce, kterou aplikace ukazuje uživatelům a na kterou posílá oznámení o nové žádosti o roli `vet` ([14](14-administrace.md) §14.11); bez ní se oznámení neposílá |
 | `DJANGO_LOG_LEVEL` | ne | Úroveň protokolu na standardní výstup, výchozí `INFO` |
+| `DJANGO_STAFF_SESSION_IDLE_SECONDS`, `DJANGO_STAFF_SESSION_MAX_SECONDS` | ne | Odhlášení správce po nečinnosti (výchozí 1800) a od přihlášení (výchozí 43200), kladná čísla ([14](14-administrace.md) §14.5) |
+| `DJANGO_REQUIRE_2FA_FOR_STAFF` | ne | Dvoufázové ověření správců je povinné (výchozí `true`). Hodnota `false` aplikaci v produkci **nespustí** ([14](14-administrace.md) §14.6) |
 
 `manage.py` má výchozí nastavení `config.settings.dev`. **Na serveru vždy nastavte**
 `DJANGO_SETTINGS_MODULE=config.settings.prod` (`wsgi.py` už `prod` používá).
@@ -114,7 +117,8 @@ Příkazy se spouštějí z `backend/` s načtenými proměnnými z §13.2 a
    Verze jsou zamčené v `pyproject.toml`; WSGI server (§13.5) a jeho verzi přidejte vlastním,
    zamčeným souborem požadavků (v `pyproject.toml` není).
 3. `manage.py migrate`. Vytvoří tabulky, role (skupiny `owner`, `vet`, `data_curator`,
-   `nutrition_reviewer`), číselník zdravotních stavů a knihovnu zdrojů.
+   `nutrition_reviewer`, `support_admin`), jejich oprávnění v administraci podle
+   `ROLE_PERMISSIONS` ([14](14-administrace.md) §14.3), číselník zdravotních stavů a knihovnu zdrojů.
 4. `manage.py createcachetable`. Limity e-mailů z účtu žijí ve sdílené databázové cache
    (`django_cache`); bez tabulky selže registrace a obnova hesla.
 5. `manage.py collectstatic --noinput`. Připraví soubory s otisky v názvu do `DJANGO_STATIC_ROOT`
@@ -123,10 +127,17 @@ Příkazy se spouštějí z `backend/` s načtenými proměnnými z §13.2 a
    příkaz je potřeba jen po změně `backend/catalog/data/sources.json`.
 7. `manage.py createsuperuser`. Zadejte e-mail a silné heslo. Bez terminálu lze použít
    `DJANGO_SUPERUSER_EMAIL` a `DJANGO_SUPERUSER_PASSWORD` s `--noinput`, heslo pak ale zůstane
-   v historii nebo v prostředí: raději interaktivně.
-8. **Přidělení rolí v administraci** (`/admin/`): *Uživatelské účty → Uživatelé*, vyberte účet,
-   v *Oprávnění a role* přidejte skupinu (`vet`, `data_curator`, `nutrition_reviewer`) a uložte.
-   Registrace vytvoří vždy jen roli `owner`. Podrobně: README, *Role veterinárního lékaře*.
+   v historii nebo v prostředí: raději interaktivně. **Hned se přihlaste a nastavte dvoufázové
+   ověření** (aplikace vás na něj pošle, uložte záložní kódy): správce bez něj nemůže nic dělat
+   a do té doby je účet chráněný jen heslem ([14](14-administrace.md) §14.6).
+8. **Přidělení rolí v administraci** (adresa z `DJANGO_ADMIN_URL`): *Uživatelské účty → Uživatelé*,
+   vyberte účet, v *Oprávnění a role* přidejte skupinu (`vet`, `support_admin`, `data_curator`,
+   `nutrition_reviewer`) a uložte; roli smí přidělit jen superuživatel. Skupiny správců
+   (`support_admin`, `data_curator`, `nutrition_reviewer`) účtu zároveň dají přístup do
+   administrace (`is_staff` je odvozený, [14](14-administrace.md) §14.2) a ten si při prvním
+   přihlášení musí nastavit dvoufázové ověření. Registrace vytvoří vždy jen roli `owner`. Roli
+   `vet` běžně nepřidělujete ručně: veterinář o ni žádá na `/ucet/veterinar/` a rozhodne správce
+   uživatelů ([14](14-administrace.md) §14.11). Podrobně: README, *Role veterinárního lékaře*.
 9. `manage.py check --deploy`. Očekávané upozornění je jediné: `security.W021` (HSTS preload,
    §13.2). Cokoli jiného před spuštěním opravte.
 10. **Spusťte WSGI server, proxy a plánovač** (§13.5, §13.7) a hned **zálohujte a otestujte
@@ -226,7 +237,9 @@ nemaže, takže stránky načtené před aktualizací najdou své soubory; star�
 
 ## 13.7 E-mail a denní úlohy 🛠
 
-**E-mail.** Aktivace registrace a obnova hesla se posílají přes SMTP (`DJANGO_EMAIL_*`). Odesílání
+**E-mail.** Aktivace registrace, obnova hesla, rozhodnutí o žádosti o roli veterináře (žadateli) a
+oznámení o nové takové žádosti (na `DJANGO_CONTACT_EMAIL`, [14](14-administrace.md) §14.11)
+se posílají přes SMTP (`DJANGO_EMAIL_*`). Odesílání
 probíhá až po odpovědi serveru (`ACCOUNT_EMAIL_IN_BACKGROUND`), aby doba odpovědi neprozradila, zda
 účet existuje. Selhání SMTP se proto nezobrazí uživateli, ale jen v protokolu aplikace jako chyba
 `Sending account e-mail … failed` (logger `accounts.services`): sledujte ho. Doména odesílatele potřebuje SPF a DKIM, jinak aktivační e-maily končí ve
@@ -238,6 +251,7 @@ spamu 🟡 netestováno.
 |---|---|---|
 | Neaktivované registrace | `deploy/run_manage.sh purge_pending_accounts` (= `manage.py`, §13.2) | Smaže registrace, které nikdo neaktivoval do 7 dnů (`PENDING_ACCOUNT_RETENTION`). Je to osobní údaj osoby, která registraci možná nezaložila ([12](12-ucty-a-zvirata.md) §12.8, bod 8) |
 | Prošlé relace | `deploy/run_manage.sh clearsessions` | Maže prošlé relace z databáze (jinak tabulka `django_session` jen roste) |
+| Záznam přístupů do administrace | `deploy/run_manage.sh purge_admin_access_log` | Smaže řádky starší než `ADMIN_ACCESS_LOG_RETENTION_DAYS` (pracovně 365 dní; dobu uchování rozhodne právník, [14](14-administrace.md) §14.7 a §14.9) |
 | Záloha | `deploy/backup_db.sh` | §13.8 |
 | Test obnovy | `deploy/restore_test.sh` | Jednou měsíčně, §13.10 |
 
@@ -616,13 +630,20 @@ K posouzení právníkem (dopad na provoz, ne právní závěr):
 1. Přijmout, že údaje zůstávají v záloze po omezenou, uživateli sdělenou dobu a že se zálohy
    nepoužívají k jinému účelu než k obnově.
 2. **Po každé obnově ze zálohy výmazy provedené po vzniku zálohy zopakovat**, jinak se smazaný
-   účet vrátí. Aplikace zatím nevede záznam o provedených výmazech (ani ve formě odvozeného
-   identifikátoru), takže by se výmazy musely dohledat ručně, např. z žádostí. Záznam o výmazech
-   je otevřený bod pro právníka a pro další vývoj: je třeba rozhodnout, co smí obsahovat.
+   účet vrátí. Výmazy z podnětu žádosti subjektu údajů zapisuje evidence žádostí
+   ([14](14-administrace.md) §14.12: pseudonym, datum a automatická poznámka bez osobních údajů;
+   v záznamu přístupů je řádek `DELETE` s číslem účtu), takže je z ní lze dohledat. **Výmaz, který
+   uživatel provedl sám na stránce *Můj účet*, se nikam nezapisuje**, a výmazy bez evidence žádosti
+   ji nemají: záznam o nich je otevřený bod pro právníka a pro další vývoj (co smí obsahovat).
 3. Zvážit kratší měsíční retenci (hodnoty jsou v `deploy/backup_db.sh` jako `KEEP_NEWEST` a
    `KEEP_MONTHS` a změna se musí promítnout do testů a textu *Ochrany osobních údajů*).
 4. Přístup k zálohám a heslu je správa přístupu k osobním údajům (záznam o zpracování, [12](12-ucty-a-zvirata.md)
    §12.8, bod 6).
+5. **Záloha obsahuje tajné klíče dvoufázového ověření a záložní kódy správců i uživatelů v čitelné
+   podobě** (`django-otp` je neukládá šifrovaně, [14](14-administrace.md) §14.6): kdo získá
+   zálohu, získá druhý faktor. Proto je šifrování záloh (§13.8) a oddělení účtů podmínkou, ne
+   doporučením. A záloha obsahuje i záznam přístupů do administrace (e-maily správců, IP adresy,
+   [14](14-administrace.md) §14.7).
 
 ## 13.15 WAL archivace a obnova k okamžiku (PITR) 🟡 netestováno
 

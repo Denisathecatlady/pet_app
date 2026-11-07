@@ -13,8 +13,9 @@ from simple_history.admin import SimpleHistoryAdmin
 
 from accounts.export import build_export
 from accounts.models import User
+from accounts.roles import Role
 from catalog.models import ScientificSource
-from tests.backend.helpers import PASSWORD
+from tests.backend.helpers import PASSWORD, log_in_verified
 
 pytestmark = pytest.mark.django_db
 
@@ -26,7 +27,7 @@ def admin_user() -> User:
 
 @pytest.fixture
 def admin_client(client, admin_user):
-    client.force_login(admin_user)
+    log_in_verified(client, admin_user)
     return client
 
 
@@ -214,17 +215,9 @@ def test_admin_change_is_recorded_in_history(admin_client, admin_user, make_sour
 
 @pytest.fixture
 def curator_client(client, make_user):
-    """A staff member who may only view and change sources (what a data curator needs)."""
-    from django.contrib.auth.models import Permission
-
-    curator = make_user("curator@example.cz", roles=(), is_staff=True)
-    curator.user_permissions.set(
-        Permission.objects.filter(
-            content_type__app_label="catalog",
-            codename__in=["view_scientificsource", "change_scientificsource"],
-        )
-    )
-    client.force_login(curator)
+    """A staff member with the role of a data curator (docs/14 §14.3)."""
+    curator = make_user("curator@example.cz", roles=(Role.DATA_CURATOR,))
+    log_in_verified(client, curator)
     client.curator = curator
     return client
 

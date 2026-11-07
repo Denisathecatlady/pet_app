@@ -19,3 +19,7 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 AXES_ENABLED = True
+
+# Fixed here, never read from the environment: the tests exercise the real defaults.
+ADMIN_URL = "admin/"
+REQUIRE_2FA_FOR_STAFF = True

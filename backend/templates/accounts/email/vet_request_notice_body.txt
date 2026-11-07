@@ -1,0 +1,8 @@
+{% autoescape off %}Dobrý den,
+
+uživatel {{ applicant_email }} požádal v aplikaci BARF Nutri o roli veterinárního lékaře.
+
+Žádost čeká na posouzení v administraci: Uživatelské účty, Žádosti o ověření veterináře.
+
+BARF Nutri
+{% endautoescape %}

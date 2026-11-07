@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Dvoufázové ověření{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Dvoufázové ověření</h1>
+  <p>Při přihlášení kromě hesla zadáte jednorázový kód z aplikace v telefonu. Heslo samotné pak
+  k přihlášení nestačí, ani když ho někdo zjistí.</p>
+
+  <dl class="facts">
+    <div>
+      <dt>Stav</dt>
+      <dd>
+        {% if state.enrolled %}
+          {% include "core/includes/status_badge.html" with css="success" icon="✓" label="Zapnuto" %}
+        {% elif state.required %}
+          {% include "core/includes/status_badge.html" with css="blocked" icon="⛔" label="Povinné, zatím nenastaveno" %}
+        {% else %}
+          {% include "core/includes/status_badge.html" with css="info" icon="ⓘ" label="Vypnuto" %}
+        {% endif %}
+      </dd>
+    </div>
+    <div><dt>Povinné</dt><dd>{% if state.required %}ano, pro správce aplikace je povinné vždy{% else %}ne, je dobrovolné{% endif %}</dd></div>
+    {% if state.enrolled %}
+      <div><dt>Nastaveno</dt><dd>{{ state.confirmed_at|date:"j. n. Y H:i" }}</dd></div>
+      <div><dt>Záložní kódy</dt><dd>nepoužitých: {{ state.recovery_codes_left }}</dd></div>
+    {% endif %}
+  </dl>
+
+  {% if state.enrolled and state.recovery_codes_left <= 2 %}
+    <div class="notice notice--warning" role="note">
+      <span class="notice__icon" aria-hidden="true">⚠</span>
+      <p>{% if state.recovery_codes_left == 0 %}Nemáte žádný nepoužitý záložní kód.{% else %}Zbývá vám málo záložních kódů.{% endif %}
+      Vytvořte si nové: bez nich se při ztrátě telefonu k účtu nedostanete.</p>
+    </div>
+  {% endif %}
+
+  <div class="actions">
+    {% if not state.enrolled %}
+      <a class="button" href="{% url 'accounts:two_factor_setup' %}">Nastavit dvoufázové ověření</a>
+    {% else %}
+      <a class="button button--secondary" href="{% url 'accounts:two_factor_codes' %}">Vytvořit nové záložní kódy</a>
+      <a class="button button--secondary" href="{% url 'accounts:two_factor_setup' %}">Změnit zařízení</a>
+      {% if can_disable %}
+        <a class="button button--danger" href="{% url 'accounts:two_factor_disable' %}">Vypnout…</a>
+      {% endif %}
+    {% endif %}
+  </div>
+  <p><a href="{% url 'accounts:profile' %}">Zpět na Můj účet</a></p>
+</div>
+{% endblock %}

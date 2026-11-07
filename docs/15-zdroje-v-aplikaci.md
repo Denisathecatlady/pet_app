@@ -123,10 +123,12 @@ název, rozmezí roku, formát DOI, adresa `http(s)`, povolené hodnoty všech v
 - datum ověření není v budoucnosti, `life_stages` a `verification_markers` jsou seznamy známých
   jedinečných kódů.
 
-Administrace (`/admin/catalog/scientificsource/`): `SimpleHistoryAdmin`, filtry (úroveň, typ,
-druh, ověření), hledání (klíč, název, autoři, DOI), životní fáze a značky ověření jako zaškrtávací
-pole. Oprávnění k modelu se zatím přidělují ručně (skupina `data_curator` nemá žádná práva,
-[12](12-ucty-a-zvirata.md) §12.2).
+Administrace (`<adresa administrace>/catalog/scientificsource/`, ve vývoji `/admin/…`, v produkci
+adresa z `DJANGO_ADMIN_URL`): `SimpleHistoryAdmin`, filtry (úroveň, typ, druh, ověření), hledání
+(klíč, název, autoři, DOI), životní fáze a značky ověření jako zaškrtávací pole. Oprávnění k modelu
+dává role: skupina `data_curator` smí zdroje zobrazit, přidat a změnit, `nutrition_reviewer` je smí
+jen zobrazit (tabulka `ROLE_PERMISSIONS`, [14](14-administrace.md) §14.3); zdroj smí smazat jen
+superuživatel a do administrace se nelze dostat bez dvoufázového ověření ([14](14-administrace.md) §14.6).
 
 ## 15.4 Jak se záznam registru převádí na pole 🛠
 

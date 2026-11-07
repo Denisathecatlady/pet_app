@@ -10,8 +10,10 @@ from django.test import Client, RequestFactory, override_settings
 from django.urls import reverse
 from django.views import defaults
 
+from accounts.roles import Role
 from config.settings.base import BASE_DIR
 from core.status import WARNING_LEVELS, level_style
+from tests.backend.helpers import log_in_verified
 
 pytestmark = pytest.mark.django_db
 
@@ -67,7 +69,7 @@ def test_navigation_for_signed_in_user(logged_in_client):
 
 
 def test_navigation_shows_admin_link_to_staff(client, make_user):
-    client.force_login(make_user("staff@example.cz", is_staff=True))
+    log_in_verified(client, make_user("staff@example.cz", roles=(Role.SUPPORT_ADMIN,)))
     assert reverse("admin:index") in client.get(reverse("core:dashboard")).content.decode()
 
 

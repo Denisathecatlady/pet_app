@@ -12,9 +12,12 @@
     </dl>
     <p class="hint">E-mail slouží k přihlášení a zatím ho nelze změnit.</p>
     {% if not user.is_vet %}
-      <p class="hint">Jste veterinární lékař? Roli veterinárního lékaře přiděluje na žádost
-      správce aplikace: {% include "core/includes/contact.html" %}. Napište mu z adresy tohoto
-      účtu. S rolí vám pak majitelé mohou zpřístupnit své zvíře.</p>
+      <p class="hint">Jste veterinární lékař? Roli veterinárního lékaře přiděluje správce
+      aplikace po ověření: <a href="{% url 'accounts:vet_verification' %}">požádat o roli</a>.
+      S rolí vám pak majitelé mohou zpřístupnit své zvíře.</p>
+    {% else %}
+      <p class="hint"><a href="{% url 'accounts:vet_verification' %}">Role veterinárního lékaře
+      a stav žádosti</a></p>
     {% endif %}
     <form method="post" novalidate>
       {% csrf_token %}
@@ -27,6 +30,15 @@
     <section aria-labelledby="security-title">
       <h2 id="security-title">Zabezpečení</h2>
       <p><a href="{% url 'accounts:password_change' %}">Změnit heslo</a></p>
+      <p>Dvoufázové ověření:
+        {% if two_factor.enrolled %}
+          {% include "core/includes/status_badge.html" with css="success" icon="✓" label="zapnuto" %}
+        {% elif two_factor.required %}
+          {% include "core/includes/status_badge.html" with css="blocked" icon="⛔" label="povinné, nenastaveno" %}
+        {% else %}
+          {% include "core/includes/status_badge.html" with css="info" icon="ⓘ" label="vypnuto" %}
+        {% endif %}
+        <a href="{% url 'accounts:two_factor' %}">Spravovat</a></p>
     </section>
 
     <section aria-labelledby="data-title">

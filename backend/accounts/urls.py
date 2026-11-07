@@ -1,7 +1,7 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path
 
-from . import views
+from . import two_factor_views, views
 
 app_name = "accounts"
 
@@ -35,7 +35,13 @@ urlpatterns = [
         name="password_reset_confirm",
     ),
     path("profil/", views.profile, name="profile"),
+    path("veterinar/", views.vet_verification_page, name="vet_verification"),
     path("export/", views.export_data, name="export"),
+    path("2fa/", two_factor_views.status, name="two_factor"),
+    path("2fa/nastaveni/", two_factor_views.setup, name="two_factor_setup"),
+    path("2fa/overeni/", two_factor_views.verify, name="two_factor_verify"),
+    path("2fa/kody/", two_factor_views.new_recovery_codes, name="two_factor_codes"),
+    path("2fa/vypnout/", two_factor_views.disable, name="two_factor_disable"),
     path("smazat/", views.delete_account, name="delete"),
     path("smazano/", views.deleted, name="deleted"),
 ]

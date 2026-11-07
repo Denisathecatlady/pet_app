@@ -31,6 +31,7 @@ aplikaci zatím nejsou.
 | 11 | [Testovací plán](docs/11-testovaci-plan.md) | Katalog testů, golden příklady, odborná validace |
 | 12 | [Účty a zvířata](docs/12-ucty-a-zvirata.md) | Webová aplikace: role, oprávnění, upozornění u zvířat, GDPR, otevřené body |
 | 13 | [Nasazení a provoz](docs/13-nasazeni-a-provoz.md) | Proměnné prostředí, první nasazení, proxy a TLS, denní úlohy, **zálohy a obnova databáze**, test obnovy, WAL, GDPR a zálohy |
+| 14 | [Administrace](docs/14-administrace.md) | Role správců a matice oprávnění, ochrana před eskalací, skrytá adresa, relace, **dvoufázové ověření**, záznam přístupů |
 | 15 | [Knihovna zdrojů v aplikaci](docs/15-zdroje-v-aplikaci.md) | Veřejná knihovna `ScientificSource`: stránky, model, převod registru, aktualizace |
 | – | [Registr zdrojů](docs/zdroje.md) | Všechny citace s úrovní ověření (jediný zdroj pravdy pro knihovnu) |
 
@@ -96,8 +97,13 @@ Adresář [`backend/`](backend/) obsahuje Django 5.2 LTS projekt (`config`) s ap
 - `core`: rozvržení, úvodní stránka, přehled (dashboard), koncepty právních stránek, chybové
   stránky, styly a odznaky úrovní upozornění podle docs/08 §8.6;
 - `accounts`: uživatel přihlašovaný e-mailem, role jako skupiny `owner`, `vet`, `data_curator`,
-  `nutrition_reviewer`, registrace s aktivací e-mailem, přihlášení chráněné `django-axes`, změna
-  a obnova hesla, profil, export osobních údajů do JSON a smazání účtu;
+  `nutrition_reviewer`, `support_admin`, registrace s aktivací e-mailem, přihlášení chráněné
+  `django-axes`, změna a obnova hesla, profil, export osobních údajů do JSON, smazání účtu a
+  **dvoufázové ověření** (`/ucet/2fa/`, povinné pro správce, [docs/14](docs/14-administrace.md));
+  `User.is_staff` je odvozený z rolí a oprávnění rolí jsou v jedné tabulce `ROLE_PERMISSIONS`;
+- `backoffice`: administrace (vestavěná administrace Djanga, `BarfAdminSite`: hlavička *BARF Nutri –
+  správa*, přístup jen s ověřeným druhým faktorem), **záznam přístupů správců** k osobním údajům a
+  jeho uchování;
 - `animals`: profily psů a koček, měření hmotnosti, BCS a MCS s grafy hmotnosti a BCS (SVG bez
   JavaScriptu, jen popisné), zdravotní stavy z číselníku
   podle docs/09 §9.2, úroveň upozornění u každého zvířete, sdílení s veterinářem a potvrzení
@@ -131,6 +137,11 @@ cd backend
 ../.venv/bin/python manage.py runserver           # http://127.0.0.1:8000/
 ```
 
+Administrace je ve vývoji na `/admin/`. **Správce musí mít dvoufázové ověření**: po prvním
+přihlášení vás aplikace pošle na jeho nastavení (aplikace pro časové kódy v telefonu, uložte si
+záložní kódy). Ve vývoji to lze vypnout proměnnou `DJANGO_REQUIRE_2FA_FOR_STAFF=false`; v produkci
+aplikace s `false` nenastartuje.
+
 `manage.py` používá výchozí nastavení `config.settings.dev`: lokální PostgreSQL `barf`/`barf`
 na `localhost:5432`, e-maily (aktivační odkaz, obnova hesla) se vypisují do konzole. Jiné
 připojení lze zadat proměnnými prostředí `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`,
@@ -154,9 +165,16 @@ V produkci navíc:
   přihlášení by platil jen podle e-mailu, takže by kdokoli mohl zamknout cizí účet. Zámek je
   podle e-mailu a IP adresy (5 chyb, 1 hodina); hádání jednoho hesla u mnoha účtů z jedné
   adresy neomezuje (docs/12 §12.10).
-- `DJANGO_CONTACT_EMAIL` je adresa správce, kterou aplikace ukazuje uživatelům (patička, žádost
-  o roli veterinárního lékaře). E-maily z účtu se odesílají až po odpovědi serveru, aby doba
-  odpovědi neprozradila, zda účet existuje.
+- `DJANGO_ADMIN_URL` je povinná: těžko uhodnutelná cesta administrace (např. `sprava-x7k2q9m4/`,
+  ne `admin/`, s lomítkem na konci), jinak aplikace nenastartuje. Správce se po nečinnosti
+  (30 minut) a po 12 hodinách od přihlášení odhlásí a musí mít dvoufázové ověření
+  (`DJANGO_STAFF_SESSION_IDLE_SECONDS`, `DJANGO_STAFF_SESSION_MAX_SECONDS`,
+  `DJANGO_REQUIRE_2FA_FOR_STAFF`: [docs/14](docs/14-administrace.md), [docs/13](docs/13-nasazeni-a-provoz.md)).
+- Denně spouštějte i `manage.py purge_admin_access_log` (záznam přístupů do administrace starší
+  než `ADMIN_ACCESS_LOG_RETENTION_DAYS`, pracovně 365 dní; dobu uchování rozhodne právník).
+- `DJANGO_CONTACT_EMAIL` je adresa správce, kterou aplikace ukazuje uživatelům (patička, stránka
+  o roli veterinárního lékaře) a na kterou posílá oznámení o nové žádosti o tuto roli. E-maily
+  z účtu se odesílají až po odpovědi serveru, aby doba odpovědi neprozradila, zda účet existuje.
 
 ### Nasazení, zálohy a obnova
 
@@ -197,12 +215,43 @@ Změny provedené v administraci se přepíšou, pokud je dané pole v souboru; 
 
 ### Role veterinárního lékaře
 
-Registrace vytvoří účet s rolí `owner`. Roli `vet` přiděluje jen správce: v administraci
-(`/admin/`) otevřete *Uživatelské účty → Uživatelé*, vyberte účet, v části *Oprávnění a role*
-přidejte skupinu `vet` a uložte. Teprve potom s ním mohou majitelé sdílet zvířata. Veterinář
-o roli žádá e-mailem na adresu správce (`DJANGO_CONTACT_EMAIL`, stránka *Můj účet*). Odebráním
-skupiny veterinář okamžitě ztratí přístup ke sdíleným zvířatům a cílové hmotnosti, které
-potvrdil, budou znovu jen orientační. Potvrzení cílové hmotnosti v administraci měnit nelze.
+Registrace vytvoří účet s rolí `owner`. Roli `vet` dostane účet po **schválení žádosti**: uživatel
+ji podá na stránce `/ucet/veterinar/` (odkaz na stránce *Můj účet*), správce uživatelů nebo
+superuživatel ji v administraci (*Uživatelské účty → Žádosti o ověření veterináře*) vybere a akcí
+*Schválit*, *Zamítnout* nebo *Odebrat roli veterináře* rozhodne; každá akce vyžaduje poznámku
+(u schválení *Jak byla totožnost a oprávnění ověřena*, jinak odůvodnění), vlastní žádost nikdo
+nerozhoduje a žadatel dostane e-mail. Aplikace nic neověřuje sama, ověřuje člověk. Teprve s rolí
+s ním mohou majitelé sdílet zvířata. Odebráním role (akce, nebo ručně odebraná skupina)
+veterinář okamžitě ztratí přístup ke sdíleným zvířatům a cílové hmotnosti, které potvrdil, budou
+znovu jen orientační. Potvrzení cílové hmotnosti v administraci měnit nelze. Superuživatel může
+skupinu `vet` přidat i ručně ve formuláři uživatele (*Oprávnění a role*), mimo tento postup.
+Podrobnosti: [docs/14](docs/14-administrace.md) §14.11.
+
+### Role správců a administrace
+
+Do administrace se smí přihlásit jen účet s `is_staff`, který se **nenastavuje ručně**: platí pro
+superuživatele a členy skupin `support_admin` (správce uživatelů), `data_curator` a
+`nutrition_reviewer`. Co která role smí, je v jediné tabulce `ROLE_PERMISSIONS`
+(`backend/accounts/roles.py`); `manage.py migrate` i příkaz `sync_role_permissions` ji
+uplatní a `print_role_matrix` ji vypíše jako tabulku (výstup je ve [docs/14](docs/14-administrace.md)).
+
+```bash
+cd backend
+../.venv/bin/python manage.py sync_role_permissions [--dry-run]   # oprávnění skupin podle tabulky
+../.venv/bin/python manage.py print_role_matrix                   # matice jako tabulka v Markdownu
+../.venv/bin/python manage.py reset_2fa uzivatel@example.cz       # ztráta zařízení: zruší dvoufázové ověření
+../.venv/bin/python manage.py purge_admin_access_log              # smaže staré záznamy přístupů
+```
+
+Správce uživatelů vidí a mění jen účty, které nejsou správci (jméno, příjmení, aktivní účet),
+heslo nikdo v administraci nevidí ani nenastavuje (akce *Odeslat odkaz na obnovu hesla*) a
+mazat uživatele smí jen superuživatel. Správce uživatelů dále odemyká přihlášení (*Zámky
+přihlášení*), znovu posílá aktivační e-maily a maže neaktivované registrace po lhůtě, rozhoduje
+o žádostech o roli veterináře a vyřizuje žádosti subjektů údajů: eviduje je (*Žádosti subjektů
+údajů*, lhůta pracovně 1 měsíc) a pro ověřenou žádost vytvoří export osobních údajů nebo smaže
+účet (jen účet, který není správce), [docs/14](docs/14-administrace.md) §14.11 až §14.14. Ztrátu zařízení pro druhý faktor řeší záložní kódy, akce
+*Zrušit dvoufázové ověření* (superuživatel) nebo `reset_2fa`. Podrobnosti a omezení
+(tajné klíče jsou v databázi v čitelné podobě): [docs/14](docs/14-administrace.md).
 
 ### Testy
 

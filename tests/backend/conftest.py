@@ -156,3 +156,32 @@ def empty_library(db):
 
     ScientificSource.objects.all().delete()
     ScientificSource.history.all().delete()
+
+
+# --- Administration -----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def superuser(make_user) -> User:
+    return make_user("root@example.cz", roles=(), is_superuser=True)
+
+
+@pytest.fixture
+def make_staff(make_user) -> Callable[..., User]:
+    """Create a staff user with the given role (default: support_admin)."""
+
+    def factory(role: str = Role.SUPPORT_ADMIN, email: str | None = None, **fields) -> User:
+        return make_user(email or f"{role}@example.cz", roles=(role,), **fields)
+
+    return factory
+
+
+@pytest.fixture
+def staff_client(client, make_staff):
+    """A client signed in (second factor passed) as a support administrator."""
+    from tests.backend.helpers import log_in_verified
+
+    staff = make_staff()
+    log_in_verified(client, staff)
+    client.staff = staff
+    return client

@@ -127,6 +127,7 @@ def test_crontab_example_schedules_every_required_job():
     assert "deploy/restore_test.sh" in text
     assert "purge_pending_accounts" in text
     assert "clearsessions" in text
+    assert "purge_admin_access_log" in text
     for line in schedules:
         minute, hour, day, month, weekday = line.split()[:5]
         assert minute.isdigit() and hour.isdigit(), line
@@ -153,7 +154,7 @@ def test_crontab_example_never_runs_a_secrets_file_in_a_shell():
         line for line in jobs if "purge_pending_accounts" in line or "clearsessions" in line
     ]
     assert len(django_jobs) == 2
-    for line in django_jobs:
+    for line in [*django_jobs, *(line for line in jobs if "purge_admin_access_log" in line)]:
         assert "/deploy/run_manage.sh " in line, line
     assert "APP_ENV_FILE=/etc/barf/app.env" in text
 

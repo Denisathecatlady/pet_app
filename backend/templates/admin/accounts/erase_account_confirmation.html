@@ -1,0 +1,14 @@
+{% extends "admin/accounts/confirm_action.html" %}
+{% block action_summary %}
+  <p class="help">Žádost č. {{ dsr.pk }}: {{ dsr.get_request_type_display }}, přijato {{ dsr.received_on|date:"j. n. Y" }}, totožnost žadatele ověřena.</p>
+  <p>Bude trvale smazán účet <strong>{{ account.email }}</strong> a s ním:</p>
+  <ul>
+    {% for line in lines %}<li>{{ line.label }}: {{ line.count }}</li>{% endfor %}
+  </ul>
+  <p>Smaže se i historie změn těchto záznamů. Stejně jako při smazání účtu uživatelem
+  zůstane v protokolu administrace záznam o úpravách bez textu smazaných objektů a v záznamu
+  přístupů řádek o tomto výmazu. Ze záloh databáze údaje zmizí až po uplynutí doby jejich
+  uchování. Žádost zůstane v evidenci jako vyřízená, bez odkazu na účet.</p>
+  <p><strong>Smazání nelze vrátit.</strong> Pokud si žadatel chce data ponechat, nejdříve mu
+  vytvořte export osobních údajů.</p>
+{% endblock %}

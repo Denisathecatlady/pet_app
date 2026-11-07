@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Záložní kódy{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Záložní kódy</h1>
+  {% if regenerated %}
+    <p>Vytvořili jsme nové záložní kódy. Dosavadní už neplatí.</p>
+  {% else %}
+    <p>Dvoufázové ověření je zapnuto.</p>
+  {% endif %}
+  <div class="notice notice--warning" role="note">
+    <span class="notice__icon" aria-hidden="true">⚠</span>
+    <div>
+      <p><strong>Uložte si tyto kódy hned.</strong> Aplikace je už znovu neukáže.</p>
+      <p>Každý kód lze použít jednou, místo kódu z aplikace, když nemáte telefon. Uložte je
+      mimo telefon (správce hesel, vytištěný papír na bezpečném místě) a nikomu je neposílejte.</p>
+    </div>
+  </div>
+  <ul class="recovery-codes" aria-label="Záložní kódy">
+    {% for code in codes %}<li><code>{{ code }}</code></li>{% endfor %}
+  </ul>
+  <p><a class="button" href="{{ next }}">Uložil(a) jsem si je, pokračovat</a></p>
+</div>
+{% endblock %}

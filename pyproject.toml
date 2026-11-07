@@ -14,6 +14,8 @@ dependencies = [
     "argon2-cffi==25.1.0",
     "django-simple-history==3.13.0",
     "django-axes==8.3.1",
+    "django-otp==1.7.5",
+    "qrcode==8.2",
 ]
 
 [project.optional-dependencies]

@@ -6,8 +6,9 @@ settings modules evaluate the environment when they are imported.
 """
 
 import os
+import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Final
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -109,3 +110,50 @@ def database_from_env(defaults: Mapping[str, str] | None = None) -> dict[str, An
             raise ImproperlyConfigured(f"Required environment variable {variable} is not set.")
         config[key] = value
     return config
+
+
+ADMIN_URL_VARIABLE: Final = "DJANGO_ADMIN_URL"
+DEFAULT_ADMIN_URL: Final = "admin/"
+# Letters, digits and - _ . ~ in segments separated by slashes; ends with a slash.
+_ADMIN_URL_PATTERN: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.~-]*(/[A-Za-z0-9_.~-]+)*/")
+# First path segments used by the application itself: the administration must not hide them.
+_RESERVED_ADMIN_SEGMENTS: Final = frozenset(
+    {"ucet", "zvirata", "zdroje", "prehled", "podminky-uziti", "ochrana-osobnich-udaju", "static"}
+)
+
+
+def admin_url_from_env(*, production: bool) -> str:
+    """Return the path of the administration from ``DJANGO_ADMIN_URL`` (docs/14 §14.4).
+
+    Development and tests (``production=False``) fall back to ``admin/`` when the variable
+    is unset. Production requires the variable and refuses the well-known ``admin/``: a
+    hidden address is the first, cheap layer against scanners (it is not a replacement for
+    the second factor and the access rules).
+
+    Raises:
+        ImproperlyConfigured: the value does not end with a slash, starts with a slash,
+            contains characters other than letters, digits and ``-_.~/``, starts with a path
+            of the application (``ucet/`` ...), or (production) is unset or ``admin/``.
+    """
+    value = env_str(ADMIN_URL_VARIABLE)
+    if value is None:
+        if production:
+            raise ImproperlyConfigured(
+                f"Required environment variable {ADMIN_URL_VARIABLE} is not set: choose a "
+                "hard to guess path of the administration, e.g. 'sprava-x7k2q9/'."
+            )
+        return DEFAULT_ADMIN_URL
+    if not _ADMIN_URL_PATTERN.fullmatch(value):
+        raise ImproperlyConfigured(
+            f"{ADMIN_URL_VARIABLE} must end with a slash, must not start with one and may "
+            f"contain only letters, digits and -_.~/ (got {value!r})."
+        )
+    if value.split("/", 1)[0].lower() in _RESERVED_ADMIN_SEGMENTS:
+        raise ImproperlyConfigured(
+            f"{ADMIN_URL_VARIABLE} must not start with a path used by the application ({value!r})."
+        )
+    if production and value.lower() == DEFAULT_ADMIN_URL:
+        raise ImproperlyConfigured(
+            f"{ADMIN_URL_VARIABLE} must not be the well-known {DEFAULT_ADMIN_URL!r}."
+        )
+    return value

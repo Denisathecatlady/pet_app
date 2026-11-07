@@ -16,6 +16,7 @@ from django.contrib.auth.models import Group
 from django.core.cache import cache
 from django.core.mail import EmailMessage
 from django.db import IntegrityError, transaction
+from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -82,29 +83,37 @@ def deliver(message: EmailMessage) -> None:
         _send_now(message)
 
 
-def _send(user: User, template_prefix: str, context: dict) -> None:
-    """Render ``<prefix>_subject.txt`` and ``<prefix>_body.txt`` and deliver them to ``user``.
+def send_template_email(recipient: str, template_prefix: str, context: dict) -> None:
+    """Render ``<prefix>_subject.txt`` and ``<prefix>_body.txt`` and deliver them to ``recipient``.
 
-    Delivery errors are logged, not raised: the visitor must see the same page
-    whether or not a message was sent.
+    The subject gets ``settings.EMAIL_SUBJECT_PREFIX``. Delivery errors are logged, not
+    raised: the visitor must see the same page whether or not a message was sent.
     """
-    context = {"user": user, **context}
     subject = render_to_string(f"{template_prefix}_subject.txt", context)
     subject = settings.EMAIL_SUBJECT_PREFIX + "".join(subject.splitlines()).strip()
     body = render_to_string(f"{template_prefix}_body.txt", context)
-    deliver(EmailMessage(subject, body, None, [user.email]))
+    deliver(EmailMessage(subject, body, None, [recipient]))
 
 
-def send_activation_email(user: User, request: HttpRequest) -> None:
+def _send(user: User, template_prefix: str, context: dict) -> None:
+    """Send the e-mail ``template_prefix`` to ``user`` (the template sees ``user``)."""
+    send_template_email(user.email, template_prefix, {"user": user, **context})
+
+
+def send_activation_email(user: User, request: HttpRequest) -> bool:
     """Send the activation link to a user who registered and has not activated yet.
 
-    Inputs: the user and the current request (for the absolute link). Does nothing
-    when the user is not pending activation or the e-mail is throttled.
+    Inputs: the user and the current request (for the absolute link).
+
+    Output: ``True`` when the e-mail was handed over for delivery; ``False`` when nothing was
+    sent, because the user is not pending activation or the e-mail is throttled
+    (``claim_email_slot``). A caller that already knows the user is pending reads ``False``
+    as "throttled".
     """
     if user.is_active or not user.activation_pending:
-        return
+        return False
     if not claim_email_slot("activation", user):
-        return
+        return False
     path = reverse(
         "accounts:activate",
         kwargs={
@@ -120,6 +129,7 @@ def send_activation_email(user: User, request: HttpRequest) -> None:
             "valid_hours": settings.PASSWORD_RESET_TIMEOUT // 3600,
         },
     )
+    return True
 
 
 def send_already_registered_email(user: User, request: HttpRequest) -> None:
@@ -246,17 +256,34 @@ def delete_account(user: User) -> None:
         user.delete()
 
 
-def purge_pending_accounts(*, now: datetime | None = None) -> int:
+def stale_pending_accounts(*, now: datetime | None = None) -> QuerySet[User]:
+    """Return the registrations never activated within ``settings.PENDING_ACCOUNT_RETENTION``.
+
+    Anyone can register any address; an unconfirmed registration is personal data of a person
+    who may never have agreed, so it is not kept. Only accounts that are inactive AND still
+    ``activation_pending`` and were created before the cut-off are returned: an account an
+    administrator deactivated (``activation_pending`` false) is never one of them.
+    """
+    cutoff = (now or timezone.now()) - settings.PENDING_ACCOUNT_RETENTION
+    return User.objects.filter(activation_pending=True, is_active=False, date_joined__lt=cutoff)
+
+
+def purge_pending_accounts(
+    *, users: QuerySet[User] | None = None, now: datetime | None = None
+) -> int:
     """Delete registrations never activated within ``settings.PENDING_ACCOUNT_RETENTION``.
 
-    Anyone can register any address; an unconfirmed registration is personal data of
-    a person who may never have agreed, so it is not kept. Accounts deactivated by
-    an administrator (``activation_pending`` false) are not touched.
+    The one place that decides what may be deleted: ``manage.py purge_pending_accounts`` (all
+    of them) and the administration action (the selected ones) both call it.
+
+    Inputs: ``users`` limits the deletion to these accounts (anything in it that is not a stale
+    pending registration is left alone, whatever the caller passes); ``now`` replaces the clock.
 
     Output: number of deleted accounts.
     """
-    cutoff = (now or timezone.now()) - settings.PENDING_ACCOUNT_RETENTION
-    stale = User.objects.filter(activation_pending=True, is_active=False, date_joined__lt=cutoff)
+    stale = stale_pending_accounts(now=now)
+    if users is not None:
+        stale = stale.filter(pk__in=users.values("pk"))
     deleted = 0
     for user in stale:
         delete_account(user)

@@ -1,0 +1,31 @@
+{% extends "admin/accounts/confirm_action.html" %}
+{% block action_summary %}
+  <p class="barf-count">
+    {% if decision == "approve" %}Schválit{% elif decision == "reject" %}Zamítnout{% else %}Odebrat roli veterináře{% endif %}:
+    {{ eligible|length }}
+  </p>
+  <ul>
+    {% for item in eligible %}
+      <li>
+        <strong>{{ item.user.email }}</strong>, pracoviště: {{ item.workplace }}{% if item.professional_id %}, evidenční číslo: {{ item.professional_id }}{% endif %}
+        {% if item.message %}<br>Zpráva žadatele: {{ item.message|linebreaksbr }}{% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+  {% if decision == "approve" %}
+    <p>Uživatel dostane roli <strong>veterinární lékař</strong>: majitelé s ním budou moci sdílet zvířata a on uvidí sdílená zvířata, zapisovat u nich měření a potvrzovat cílové hmotnosti. Rozhodnutí se zapíše do historie a do záznamu přístupů a žadatel dostane e-mail.</p>
+  {% elif decision == "reject" %}
+    <p>Žadatel roli nedostane a o zamítnutí se dozví z e-mailu i na své stránce, včetně odůvodnění, které napíšete níže. Nová žádost je možná.</p>
+  {% else %}
+    <p>Uživatel <strong>okamžitě ztratí přístup ke všem sdíleným zvířatům</strong> a cílové hmotnosti, které potvrdil, se vrátí na orientační. Žadatel se to dozví z e-mailu, včetně odůvodnění, které napíšete níže.</p>
+  {% endif %}
+  {% if refused %}
+    <div class="help">
+      <p>Tyto vybrané žádosti se přeskočí:</p>
+      <ul class="barf-refused">
+        {% for item, reason in refused %}<li>{{ item.user.email }}: {{ reason }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+  <p>Poznámky níže se uloží ke každé z uvedených žádostí.</p>
+{% endblock %}

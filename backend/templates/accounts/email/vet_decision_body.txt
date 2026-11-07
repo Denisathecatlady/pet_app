@@ -1,0 +1,23 @@
+{% autoescape off %}Dobrý den,
+
+{% if decision == "APPROVED" %}správce aplikace BARF Nutri schválil vaši žádost o roli veterinárního lékaře u účtu {{ user.email }}.
+
+Majitelé zvířat s vámi nyní mohou sdílet zvířata (podle e-mailu vašeho účtu). Vidíte jen zvířata, která s vámi majitel sdílí, a jen do doby, než sdílení zruší nebo vám správce roli odebere.
+{% if decision_note %}
+Poznámka správce:
+{{ decision_note }}
+{% endif %}{% elif decision == "REVOKED" %}správce aplikace BARF Nutri odebral účtu {{ user.email }} roli veterinárního lékaře.
+
+Přístup ke zvířatům, která s vámi majitelé sdíleli, jste tím ztratili. Cílové hmotnosti, které jste potvrdili, jsou znovu jen orientační.
+
+Důvod:
+{{ decision_note }}
+{% else %}správce aplikace BARF Nutri zamítl vaši žádost o roli veterinárního lékaře u účtu {{ user.email }}.
+
+Důvod:
+{{ decision_note }}
+
+Novou žádost můžete podat na této stránce: {{ page_url }}
+{% endif %}
+BARF Nutri
+{% endautoescape %}

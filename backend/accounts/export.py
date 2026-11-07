@@ -10,9 +10,11 @@ strings, numbers, booleans, ``None``; dates as ISO 8601 strings). It must never
 return password hashes, tokens or other secrets.
 """
 
+import json
 from collections.abc import Callable
 from typing import Any
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 
 from .roles import ROLE_LABELS
@@ -59,6 +61,16 @@ def build_export(user: Any) -> dict[str, Any]:
         "generated_at": timezone.localtime().isoformat(),
         "data": {name: _exporters[name](user) for name in registered_exporters()},
     }
+
+
+def export_json(user: Any) -> str:
+    """Return the personal data export of ``user`` as the JSON text that is downloaded.
+
+    The one place that turns :func:`build_export` into the file: the self-service download
+    (*Můj účet*) and the export made for a data subject request in the administration both
+    call it, so they hand out exactly the same data.
+    """
+    return json.dumps(build_export(user), cls=DjangoJSONEncoder, ensure_ascii=False, indent=2)
 
 
 def _iso(value: Any) -> str | None:
@@ -118,3 +130,70 @@ def export_account(user: Any) -> dict[str, Any]:
             for entry in failures
         ],
     }
+
+
+def export_two_factor(user: Any) -> dict[str, Any]:
+    """Exporter of the two-factor section: whether it is set up, since when, codes left.
+
+    Never the secret key of the authenticator and never a recovery code. ``confirmed_at`` is
+    the moment the device was confirmed (see ``two_factor.confirm_enrollment``).
+    """
+    from . import two_factor
+
+    status = two_factor.status(user)
+    return {
+        "enrolled": status.enrolled,
+        "confirmed_at": _iso(status.confirmed_at),
+        "unused_recovery_codes": status.recovery_codes_left,
+    }
+
+
+def export_vet_verification(user: Any) -> list[dict[str, Any]]:
+    """Exporter of the requests for the role of a veterinarian, oldest first.
+
+    What the user typed and the decision they were told about. NOT exported: the internal note
+    how the person was verified and who decided (docs/14 §14.12, a question for the lawyer).
+    """
+    from .models import VetVerificationStatus
+
+    return [
+        {
+            "submitted_at": _iso(item.submitted_at),
+            "professional_id": item.professional_id,
+            "workplace": item.workplace,
+            "message": item.message,
+            "status": {
+                "code": item.status,
+                "label": VetVerificationStatus(item.status).label,
+            },
+            "decided_at": _iso(item.decided_at),
+            "decision_note": item.decision_note,
+        }
+        for item in user.vet_verification_requests.order_by("submitted_at", "pk")
+    ]
+
+
+def export_data_subject_requests(user: Any) -> list[dict[str, Any]]:
+    """Exporter of the requests the user made as a data subject, oldest first.
+
+    Type, dates and state only; the notes of the staff and the pseudonym used in the register
+    are not exported (docs/14 §14.12, a question for the lawyer).
+    """
+    from .models import DataSubjectRequestStatus, DataSubjectRequestType
+
+    return [
+        {
+            "request_type": {
+                "code": item.request_type,
+                "label": DataSubjectRequestType(item.request_type).label,
+            },
+            "received_on": item.received_on.isoformat(),
+            "due_on": item.due_on.isoformat(),
+            "status": {
+                "code": item.status,
+                "label": DataSubjectRequestStatus(item.status).label,
+            },
+            "completed_on": item.completed_on.isoformat() if item.completed_on else None,
+        }
+        for item in user.data_subject_requests.order_by("received_on", "pk")
+    ]

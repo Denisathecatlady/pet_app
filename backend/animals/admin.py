@@ -1,7 +1,14 @@
-"""Admin of the animals app. Every model keeps its history (SimpleHistoryAdmin)."""
+"""Admin of the animals app. Every model keeps its history (SimpleHistoryAdmin).
+
+The models with personal data (animals, measurements, conditions of animals, shares) record
+every access in the access log of the administration (``AccessLoggedAdminMixin``, docs/14 §14.7).
+The codebook ``HealthCondition`` holds no personal data.
+"""
 
 from django.contrib import admin
 from simple_history.admin import SimpleHistoryAdmin
+
+from backoffice.access_log import AccessLoggedAdminMixin
 
 from .models import (
     Animal,
@@ -13,7 +20,7 @@ from .models import (
 
 
 @admin.register(Animal)
-class AnimalAdmin(SimpleHistoryAdmin):
+class AnimalAdmin(AccessLoggedAdminMixin, SimpleHistoryAdmin):
     """Animals. Only a vet with a share confirms a target weight (docs/05 §5.3), so the
     confirmation is read-only here; changing the target weight, species or state in the
     admin cancels it (``Animal.clean``)."""
@@ -33,7 +40,7 @@ class AnimalAdmin(SimpleHistoryAdmin):
 
 
 @admin.register(BodyMeasurement)
-class BodyMeasurementAdmin(SimpleHistoryAdmin):
+class BodyMeasurementAdmin(AccessLoggedAdminMixin, SimpleHistoryAdmin):
     list_display = ("animal", "measured_on", "weight_kg", "bcs", "mcs", "assessed_by")
     list_filter = ("assessed_by", "mcs")
     search_fields = ("animal__name", "animal__owner__email")
@@ -50,7 +57,7 @@ class HealthConditionAdmin(SimpleHistoryAdmin):
 
 
 @admin.register(AnimalHealthCondition)
-class AnimalHealthConditionAdmin(SimpleHistoryAdmin):
+class AnimalHealthConditionAdmin(AccessLoggedAdminMixin, SimpleHistoryAdmin):
     list_display = ("animal", "condition", "diagnosed_by_vet", "since")
     list_filter = ("condition", "diagnosed_by_vet")
     search_fields = ("animal__name", "animal__owner__email")
@@ -58,7 +65,7 @@ class AnimalHealthConditionAdmin(SimpleHistoryAdmin):
 
 
 @admin.register(AnimalShare)
-class AnimalShareAdmin(SimpleHistoryAdmin):
+class AnimalShareAdmin(AccessLoggedAdminMixin, SimpleHistoryAdmin):
     list_display = ("animal", "vet", "granted_by", "created_at", "revoked_at")
     list_filter = ("revoked_at",)
     search_fields = ("animal__name", "vet__email", "granted_by__email")

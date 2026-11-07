@@ -379,9 +379,13 @@ class AnalysisNutrientResult(models.Model):    # denormalizace pro dotazy a graf
 - **Neměnnost:** `save()` a `delete()` vyhodí výjimku pro objekty ve schválené verzi. PostgreSQL trigger
   `BEFORE UPDATE OR DELETE` je druhá pojistka.
 - **Historie uživatelských dat:** `django-simple-history` pro `Animal`, `BodyMeasurement`,
-  `AnimalHealthCondition` (kdo, kdy, co změnil).
+  `AnimalHealthCondition` (kdo, kdy, co změnil) a pro evidenci správy uživatelů,
+  `VetVerificationRequest` (žádost o roli veterináře) a `DataSubjectRequest` (žádost subjektu
+  údajů), [14](14-administrace.md) §14.11, §14.12.
 - **Role:** `owner` (vlastní zvířata a recepty), `vet` (zvířata klientů se souhlasem, odborný režim),
-  `data_curator` (importy), `nutrition_reviewer` (schvalování dat a pravidel), `admin`.
+  `data_curator` (importy), `nutrition_reviewer` (schvalování dat a pravidel), `support_admin`
+  (správce uživatelů), `admin` (= superuživatel). `User.is_staff` je odvozený z rolí a oprávnění rolí
+  v administraci jsou v jediné tabulce `ROLE_PERMISSIONS` ([14](14-administrace.md) §14.2, §14.3).
 
 ## 7.7 Bezpečnost a ochrana dat
 
@@ -389,7 +393,8 @@ class AnalysisNutrientResult(models.Model):    # denormalizace pro dotazy a graf
 |---|---|
 | Osobní údaje (GDPR) | Účet vlastníka = osobní údaje. Minimalizace (jméno, e-mail), export a smazání účtu, záznam o zpracování. Zdravotní data zvířat jsou citlivá z hlediska důvěry, proto se chrání stejně |
 | Přístup | Objektová oprávnění (vlastník vidí jen svá data). Sdílení s veterinářem je explicitní a odvolatelné. Testy oprávnění pro každý endpoint |
-| Autentizace | Django auth, Argon2 hash hesel, volitelně 2FA (django-otp) pro role vet, curator a reviewer |
+| Autentizace | Django auth, Argon2 hash hesel, 2FA (django-otp, TOTP a záložní kódy) **povinné pro každého, kdo se přihlásí do administrace**, dobrovolné pro ostatní ([14](14-administrace.md) §14.6) |
+| Administrace | Skrytá adresa, odvozené `is_staff`, oprávnění po rolích, ochrana před eskalací, odhlášení po nečinnosti a po 12 hodinách, záznam přístupů správců k osobním údajům ([14](14-administrace.md)) |
 | Transport a aplikace | Jen HTTPS (HSTS), CSRF, bezpečné cookies, CSP, rate limiting přihlášení, `django-axes` |
 | Tajemství | Proměnné prostředí nebo secret manager, nic v repozitáři |
 | Zálohy | PostgreSQL: nepřetržitá archivace WAL (point-in-time recovery) + denní šifrovaný `pg_dump` mimo hlavní infrastrukturu. Retence 30 dní a měsíční zálohy 12 měsíců. **Měsíční test obnovy** zapsaný do protokolu. Nástroje `deploy/` a postupy: [13-nasazeni-a-provoz.md](13-nasazeni-a-provoz.md) |

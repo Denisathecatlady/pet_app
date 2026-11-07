@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Vypnutí dvoufázového ověření{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Vypnutí dvoufázového ověření</h1>
+  <div class="notice notice--warning" role="note">
+    <span class="notice__icon" aria-hidden="true">⚠</span>
+    <p>Po vypnutí stačí k přihlášení samotné heslo a záložní kódy se smažou.</p>
+  </div>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% include "core/includes/form_fields.html" %}
+    <button type="submit" class="button button--danger">Vypnout dvoufázové ověření</button>
+    <a class="button button--secondary" href="{% url 'accounts:two_factor' %}">Zrušit</a>
+  </form>
+</div>
+{% endblock %}

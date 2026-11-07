@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Role veterinárního lékaře{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Role veterinárního lékaře</h1>
+
+  <section aria-labelledby="vet-role-title">
+    <h2 id="vet-role-title">Co role umožňuje</h2>
+    <ul class="checklist">
+      <li>Majitel s vámi může sdílet své zvíře podle e-mailu vašeho účtu.</li>
+      <li>Sdílené zvíře vidíte včetně měření, zdravotních stavů a grafů. Majitel vám tím
+      zpřístupní i svůj e-mail a jméno.</li>
+      <li>U sdíleného zvířete můžete zapsat měření (uloží se jako posouzené veterinářem) a
+      potvrdit cílovou hmotnost.</li>
+      <li>Přístup trvá, jen dokud máte roli <strong>a</strong> majitel sdílení nezrušil.</li>
+    </ul>
+    <p class="hint">Role neotevírá žádná zvířata, která s vámi nikdo nesdílí, a nedává přístup
+    do správy aplikace. Pokud vám správce roli odebere, přístup ke sdíleným zvířatům hned
+    zanikne a cílové hmotnosti, které jste potvrdili, budou znovu jen orientační.</p>
+  </section>
+
+  <section aria-labelledby="vet-state-title">
+    <h2 id="vet-state-title">Stav vaší žádosti</h2>
+    {% if state.is_vet %}
+      <p>{% include "core/includes/status_badge.html" with css="success" icon="✓" label="Roli veterinárního lékaře máte" %}</p>
+    {% elif state.latest is None %}
+      <p>{% include "core/includes/status_badge.html" with css="info" icon="ⓘ" label="Zatím jste žádost nepodali" %}</p>
+    {% endif %}
+
+    {% if state.latest %}
+      {% with latest=state.latest %}
+        <dl class="facts">
+          <div>
+            <dt>Poslední žádost</dt>
+            <dd>
+              {% if latest.status == "PENDING" %}
+                {% include "core/includes/status_badge.html" with css="info" icon="ⓘ" label=latest.get_status_display %}
+              {% elif latest.status == "APPROVED" %}
+                {% include "core/includes/status_badge.html" with css="success" icon="✓" label=latest.get_status_display %}
+              {% elif latest.status == "REJECTED" %}
+                {% include "core/includes/status_badge.html" with css="blocked" icon="⛔" label=latest.get_status_display %}
+              {% else %}
+                {% include "core/includes/status_badge.html" with css="nutrition-warning" icon="⚠" label=latest.get_status_display %}
+              {% endif %}
+            </dd>
+          </div>
+          <div><dt>Odesláno</dt><dd>{{ latest.submitted_at|date:"j. n. Y H:i" }}</dd></div>
+          <div><dt>Pracoviště</dt><dd>{{ latest.workplace }}</dd></div>
+          {% if latest.decided_at %}
+            <div><dt>Rozhodnuto</dt><dd>{{ latest.decided_at|date:"j. n. Y H:i" }}</dd></div>
+          {% endif %}
+          {% if latest.decision_note %}
+            <div><dt>Odůvodnění</dt><dd>{{ latest.decision_note|linebreaksbr }}</dd></div>
+          {% endif %}
+        </dl>
+        {% if latest.status == "PENDING" %}
+          <p>Správce vaši žádost posoudí a o rozhodnutí vás informuje e-mailem. Do té doby
+          další žádost podat nelze.</p>
+        {% endif %}
+      {% endwith %}
+    {% endif %}
+  </section>
+
+  {% if form %}
+    <section aria-labelledby="vet-form-title">
+      <h2 id="vet-form-title">{% if state.latest %}Podat novou žádost{% else %}Požádat o roli{% endif %}</h2>
+      <p>Správce žádost posoudí ručně a může vás kontaktovat e-mailem na adresu tohoto účtu.
+      Do formuláře nepište rodné číslo ani čísla dokladů a nepřikládejte kopie dokladů.
+      Žádost je součástí vašeho účtu: smazáním účtu se smaže i ona.</p>
+      <form method="post" novalidate>
+        {% csrf_token %}
+        {% include "core/includes/form_fields.html" %}
+        <button type="submit" class="button">Odeslat žádost</button>
+      </form>
+    </section>
+  {% endif %}
+
+  <p class="hint">Otázky k ověření: {% include "core/includes/contact.html" %}.</p>
+  <p><a href="{% url 'accounts:profile' %}">Zpět na Můj účet</a></p>
+</div>
+{% endblock %}

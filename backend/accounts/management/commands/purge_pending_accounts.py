@@ -8,12 +8,12 @@ from typing import Any
 
 from django.core.management.base import BaseCommand
 
-from accounts.services import purge_pending_accounts
+from accounts import services
 
 
 class Command(BaseCommand):
     help = "Smaže registrace, které nebyly aktivovány v době PENDING_ACCOUNT_RETENTION."
 
     def handle(self, *args: Any, **options: Any) -> None:
-        deleted = purge_pending_accounts()
+        deleted = services.purge_pending_accounts()
         self.stdout.write(f"Smazáno neaktivovaných registrací: {deleted}")

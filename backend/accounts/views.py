@@ -1,6 +1,5 @@
 """Views of the accounts app, mounted under ``/ucet/``."""
 
-import json
 from datetime import timedelta
 from typing import Any
 
@@ -9,7 +8,6 @@ from django.contrib import messages
 from django.contrib.auth import logout
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import login_required
-from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
@@ -18,8 +16,8 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_GET, require_http_methods
 
-from . import services
-from .export import build_export
+from . import services, two_factor, vet_verification
+from .export import export_json
 from .forms import (
     AccountDeleteForm,
     ActivationForm,
@@ -29,6 +27,7 @@ from .forms import (
     ProfileForm,
     RegistrationForm,
     ResendActivationForm,
+    VetVerificationForm,
 )
 from .models import User
 
@@ -167,7 +166,41 @@ def profile(request: HttpRequest) -> HttpResponse:
         form.save()
         messages.success(request, "Profil byl uložen.")
         return redirect("accounts:profile")
-    return render(request, "accounts/profile.html", {"form": form})
+    context = {"form": form, "two_factor": two_factor.status(request.user)}
+    return render(request, "accounts/profile.html", context)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def vet_verification_page(request: HttpRequest) -> HttpResponse:
+    """What the role of a veterinarian allows, the request for it and the state of the request.
+
+    The form is offered only to a user without the role and without a pending request; a
+    rejected or revoked request can be followed by a new one. A POST that cannot file a
+    request (the role or a pending request exists) changes nothing.
+    """
+    state = vet_verification.request_state(request.user)
+    bound = request.POST if request.method == "POST" else None  # (an empty POST is still bound)
+    form = VetVerificationForm(bound) if state.can_submit else None
+    if request.method == "POST":
+        if form is not None and form.is_valid():
+            try:
+                vet_verification.submit_request(request.user, **form.cleaned_data)
+            except vet_verification.VetVerificationError as error:
+                messages.error(request, str(error))
+            else:
+                messages.success(
+                    request,
+                    "Žádost byla odeslána. Správce ji posoudí a o rozhodnutí vás informuje "
+                    "e-mailem.",
+                )
+            return redirect("accounts:vet_verification")
+        if form is None:
+            messages.error(
+                request, "Žádost teď nelze odeslat: roli už máte, nebo čeká jiná žádost."
+            )
+            return redirect("accounts:vet_verification")
+    return render(request, "accounts/vet_verification.html", {"state": state, "form": form})
 
 
 @login_required
@@ -175,9 +208,7 @@ def profile(request: HttpRequest) -> HttpResponse:
 @require_GET
 def export_data(request: HttpRequest) -> HttpResponse:
     """Download all personal data of the signed-in user as JSON (GDPR art. 15 and 20)."""
-    payload = json.dumps(
-        build_export(request.user), cls=DjangoJSONEncoder, ensure_ascii=False, indent=2
-    )
+    payload = export_json(request.user)
     filename = f"barf-nutri-export-{timezone.localdate().isoformat()}.json"
     response = HttpResponse(payload, content_type="application/json; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'

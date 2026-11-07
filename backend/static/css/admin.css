@@ -1,0 +1,158 @@
+/*
+ * BARF Nutri – additions to the stylesheet of the Django administration (docs/14).
+ * Loaded by templates/admin/base_site.html. No inline styles anywhere (CSP style-src 'self').
+ * A status is always icon + text + colour, never colour alone (docs/08 §8.1). Each fg/bg pair
+ * meets WCAG 2.1 AA (4.5:1); tests/backend/test_admin_colours.py recomputes them from this file.
+ * The tokens follow the light/dark switch of the administration (data-theme, prefers-color-scheme).
+ */
+
+:root {
+  --barf-success-fg: #0a5c2b;
+  --barf-success-bg: #e3f4e8;
+  --barf-success-border: #0a5c2b;
+  --barf-info-fg: #1b4f80;
+  --barf-info-bg: #e6f0fa;
+  --barf-info-border: #1b4f80;
+  --barf-warning-fg: #6b4200;
+  --barf-warning-bg: #fff3d6;
+  --barf-warning-border: #a66300;
+  --barf-danger-fg: #8f1a12;
+  --barf-danger-bg: #fde9e7;
+  --barf-danger-border: #b42318;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --barf-success-fg: #8fe0ac;
+    --barf-success-bg: #12351f;
+    --barf-success-border: #5fbf82;
+    --barf-info-fg: #a8cff3;
+    --barf-info-bg: #12304a;
+    --barf-info-border: #6aa6dc;
+    --barf-warning-fg: #f3d27c;
+    --barf-warning-bg: #3b2d06;
+    --barf-warning-border: #c99a2e;
+    --barf-danger-fg: #ffb4ac;
+    --barf-danger-bg: #46140f;
+    --barf-danger-border: #e0685e;
+  }
+}
+
+html[data-theme="dark"] {
+  --barf-success-fg: #8fe0ac;
+  --barf-success-bg: #12351f;
+  --barf-success-border: #5fbf82;
+  --barf-info-fg: #a8cff3;
+  --barf-info-bg: #12304a;
+  --barf-info-border: #6aa6dc;
+  --barf-warning-fg: #f3d27c;
+  --barf-warning-bg: #3b2d06;
+  --barf-warning-border: #c99a2e;
+  --barf-danger-fg: #ffb4ac;
+  --barf-danger-bg: #46140f;
+  --barf-danger-border: #e0685e;
+}
+
+.barf-status {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid;
+  border-radius: 999px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.barf-status--success {
+  color: var(--barf-success-fg);
+  background: var(--barf-success-bg);
+  border-color: var(--barf-success-border);
+}
+
+.barf-status--info {
+  color: var(--barf-info-fg);
+  background: var(--barf-info-bg);
+  border-color: var(--barf-info-border);
+}
+
+.barf-status--warning {
+  color: var(--barf-warning-fg);
+  background: var(--barf-warning-bg);
+  border-color: var(--barf-warning-border);
+}
+
+.barf-status--danger {
+  color: var(--barf-danger-fg);
+  background: var(--barf-danger-bg);
+  border-color: var(--barf-danger-border);
+  border-width: 2px;
+}
+
+/* Confirmation pages of the actions (templates/admin/accounts/confirm_action.html). */
+.barf-confirm {
+  max-width: 46rem;
+}
+
+.barf-confirm ul {
+  margin-left: 0;
+  padding-left: 1.25rem;
+}
+
+.barf-confirm .barf-refused li {
+  margin-bottom: 0.25rem;
+}
+
+.barf-confirm .barf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.barf-confirm .barf-actions input[type="submit"] {
+  margin: 0;
+  padding: 10px 15px;
+  border-radius: 4px;
+}
+
+.barf-confirm .barf-actions input[type="submit"].barf-danger {
+  background: var(--delete-button-bg);
+}
+
+.barf-confirm .barf-actions input[type="submit"].barf-danger:hover,
+.barf-confirm .barf-actions input[type="submit"].barf-danger:focus {
+  background: var(--delete-button-hover-bg);
+}
+
+.barf-confirm .barf-actions .cancel-link {
+  display: inline-block;
+  margin: 0;
+  padding: 10px 15px;
+  border-radius: 4px;
+  background: var(--close-button-bg);
+  color: var(--button-fg);
+}
+
+.barf-confirm .barf-actions .cancel-link:hover,
+.barf-confirm .barf-actions .cancel-link:focus {
+  background: var(--close-button-hover-bg);
+  color: var(--button-fg);
+}
+
+.barf-confirm .barf-count {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.barf-confirm textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (forced-colors: active) {
+  .barf-status {
+    border: 2px solid CanvasText;
+    color: CanvasText;
+    background: Canvas;
+  }
+}

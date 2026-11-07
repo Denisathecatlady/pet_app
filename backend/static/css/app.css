@@ -1135,3 +1135,56 @@ table.data td.num {
     transition: none !important;
   }
 }
+
+/* --- Two-factor authentication ----------------------------------------------------- */
+
+/* A QR code must be dark on light in both colour schemes, so the box is always white. */
+.qr {
+  display: inline-block;
+  padding: var(--space-2);
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.qr__image {
+  display: block;
+  width: 14rem;
+  max-width: 100%;
+  height: auto;
+}
+
+.secret {
+  font-size: 1.125rem;
+  letter-spacing: 0.05em;
+  overflow-wrap: anywhere;
+}
+
+.steps {
+  padding-left: var(--space-4);
+}
+
+.steps__title {
+  font-size: 1.125rem;
+  margin-bottom: var(--space-1);
+}
+
+.recovery-codes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  font-size: 1.125rem;
+}
+
+.recovery-codes li {
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.form-footer {
+  margin-top: var(--space-3);
+}

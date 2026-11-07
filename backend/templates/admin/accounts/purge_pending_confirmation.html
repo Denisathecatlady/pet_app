@@ -1,0 +1,14 @@
+{% extends "admin/accounts/confirm_action.html" %}
+{% block action_summary %}
+  <p class="barf-count">Registrací ke smazání: {{ count }}</p>
+  <p>Smažou se jen registrace, které nikdo neaktivoval a které jsou starší než {{ retention_days }} dní
+  (lhůta <code>PENDING_ACCOUNT_RETENTION</code>). Totéž dělá denně příkaz
+  <code>purge_pending_accounts</code>. Smazání je nevratné.</p>
+  {% if skipped %}
+    <p class="help">Z vybraných účtů se přeskočí {{ skipped }}: jsou aktivní, deaktivované správcem nebo ještě v lhůtě.</p>
+  {% endif %}
+  <ul>
+    {% for email in listed %}<li>{{ email }}</li>{% endfor %}
+    {% if more %}<li>… a dalších {{ more }}</li>{% endif %}
+  </ul>
+{% endblock %}

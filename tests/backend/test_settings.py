@@ -19,6 +19,7 @@ BACKEND_DIR = Path(base.BASE_DIR)
 PROD_ENV = {
     "DJANGO_SECRET_KEY": "q9!Zr7@kLm2#Vx8$Tn4%Hb6^Wc1&Jd5*Pf3(Gs0)Ye-Ua_Io+Ek=Rl",
     "DJANGO_ALLOWED_HOSTS": "barf.example.cz, www.barf.example.cz",
+    "DJANGO_ADMIN_URL": "sprava-q7x2k9m4/",
     "POSTGRES_DB": "barf_prod",
     "POSTGRES_USER": "barf_app",
     "POSTGRES_PASSWORD": "not-a-real-password",
@@ -41,6 +42,9 @@ OPTIONAL_VARS = (
     "DJANGO_DEFAULT_FROM_EMAIL",
     "DJANGO_CONTACT_EMAIL",
     "DJANGO_LOG_LEVEL",
+    "DJANGO_REQUIRE_2FA_FOR_STAFF",
+    "DJANGO_STAFF_SESSION_IDLE_SECONDS",
+    "DJANGO_STAFF_SESSION_MAX_SECONDS",
 )
 
 
@@ -154,6 +158,7 @@ def test_base_session_and_browser_security():
     [
         "DJANGO_SECRET_KEY",
         "DJANGO_ALLOWED_HOSTS",
+        "DJANGO_ADMIN_URL",
         "POSTGRES_DB",
         "POSTGRES_USER",
         "POSTGRES_PASSWORD",

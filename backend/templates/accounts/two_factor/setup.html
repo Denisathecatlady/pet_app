@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Nastavení dvoufázového ověření{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>{% if replacing %}Změna zařízení pro ověření{% else %}Nastavení dvoufázového ověření{% endif %}</h1>
+  {% if user.is_staff %}
+    <div class="notice notice--warning" role="note">
+      <span class="notice__icon" aria-hidden="true">⚠</span>
+      <p><strong>Dvoufázové ověření je pro správce aplikace povinné.</strong> Dokud ho
+      nenastavíte, nemůžete aplikaci používat.</p>
+    </div>
+  {% endif %}
+  {% if replacing %}
+    <p>Nová aplikace nahradí dosavadní. Dosavadní záložní kódy zůstávají platné.</p>
+  {% endif %}
+
+  <ol class="steps">
+    <li>
+      <h2 class="steps__title">Nainstalujte aplikaci pro ověřování</h2>
+      <p>Vhodná je libovolná aplikace pro časové jednorázové kódy (TOTP) v telefonu nebo
+      správci hesel.</p>
+    </li>
+    <li>
+      <h2 class="steps__title">Přidejte do ní tento účet</h2>
+      <p>Naskenujte QR kód.</p>
+      <div class="qr">{{ qr }}</div>
+      <p>Nelze skenovat? Zadejte v aplikaci ručně tyto údaje:</p>
+      <dl class="facts">
+        <div><dt>Klíč</dt><dd><code class="secret">{{ secret }}</code></dd></div>
+        <div><dt>Účet</dt><dd>{{ account_name }}</dd></div>
+        <div><dt>Typ</dt><dd>časový (TOTP), 6 číslic, 30 sekund</dd></div>
+      </dl>
+      <p class="hint">Klíč je tajný: kdo ho zná, může vytvářet vaše kódy. Nikomu ho neposílejte.</p>
+    </li>
+    <li>
+      <h2 class="steps__title">Potvrďte kódem z aplikace</h2>
+      <form method="post" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ next }}">
+        {% include "core/includes/form_fields.html" %}
+        <button type="submit" class="button">{% if replacing %}Nahradit zařízení{% else %}Zapnout dvoufázové ověření{% endif %}</button>
+      </form>
+    </li>
+  </ol>
+  <p><a href="{% url 'accounts:two_factor' %}">Zrušit</a></p>
+</div>
+{% endblock %}

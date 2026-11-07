@@ -55,3 +55,7 @@ APP_ENV_FILE=/etc/barf/app.env
 
 # Daily: delete expired sessions from the database.
 29 3 * * * /opt/barf/deploy/run_manage.sh clearsessions >>/var/log/barf/jobs.log 2>&1 || echo "BARF clearsessions FAILED, see /var/log/barf/jobs.log"
+
+# Daily: delete rows of the access log of the administration older than
+# ADMIN_ACCESS_LOG_RETENTION_DAYS (docs/14-administrace.md, section 14.7).
+35 3 * * * /opt/barf/deploy/run_manage.sh purge_admin_access_log >>/var/log/barf/jobs.log 2>&1 || echo "BARF purge_admin_access_log FAILED, see /var/log/barf/jobs.log"

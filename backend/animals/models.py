@@ -221,6 +221,10 @@ def _weight_field(verbose_name: str, **kwargs: Any) -> models.DecimalField:
 
 
 class Animal(models.Model):
+    # Marker for the access log of the administration (docs/14 §14.7): its admin must use
+    # backoffice.access_log.AccessLoggedAdminMixin.
+    contains_personal_data = True
+
     uuid = models.UUIDField(
         "veřejný identifikátor", default=uuid.uuid4, unique=True, editable=False
     )
@@ -468,6 +472,10 @@ class Animal(models.Model):
 
 
 class BodyMeasurement(models.Model):
+    # Marker for the access log of the administration (docs/14 §14.7): its admin must use
+    # backoffice.access_log.AccessLoggedAdminMixin.
+    contains_personal_data = True
+
     uuid = models.UUIDField(
         "veřejný identifikátor", default=uuid.uuid4, unique=True, editable=False
     )
@@ -588,6 +596,10 @@ class HealthCondition(models.Model):
 
 
 class AnimalHealthCondition(models.Model):
+    # Marker for the access log of the administration (docs/14 §14.7): its admin must use
+    # backoffice.access_log.AccessLoggedAdminMixin.
+    contains_personal_data = True
+
     animal = models.ForeignKey(
         Animal, on_delete=models.CASCADE, related_name="conditions", verbose_name="zvíře"
     )
@@ -637,6 +649,10 @@ class AnimalShareQuerySet(models.QuerySet["AnimalShare"]):
 
 class AnimalShare(models.Model):
     """Owner's consent that a vet may see the animal (docs/07 §7.7). Revocable."""
+
+    # Marker for the access log of the administration (docs/14 §14.7): its admin must use
+    # backoffice.access_log.AccessLoggedAdminMixin.
+    contains_personal_data = True
 
     uuid = models.UUIDField(
         "veřejný identifikátor", default=uuid.uuid4, unique=True, editable=False

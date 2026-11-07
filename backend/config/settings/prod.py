@@ -1,15 +1,18 @@
 """Production settings: everything sensitive comes from environment variables.
 
-Required: DJANGO_SECRET_KEY, DJANGO_ALLOWED_HOSTS, POSTGRES_DB, POSTGRES_USER,
+Required: DJANGO_SECRET_KEY, DJANGO_ALLOWED_HOSTS, DJANGO_ADMIN_URL (the hard to guess path
+of the administration: not ``admin/``, with a trailing slash), POSTGRES_DB, POSTGRES_USER,
 POSTGRES_PASSWORD, POSTGRES_HOST (POSTGRES_PORT defaults to 5432). Importing this
 module without them raises ImproperlyConfigured, so the application refuses to start.
+DJANGO_REQUIRE_2FA_FOR_STAFF=false is refused as well.
 
 Optional: DJANGO_CSRF_TRUSTED_ORIGINS, DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS (default
 true), DJANGO_SECURE_HSTS_PRELOAD (default false), DJANGO_SECURE_PROXY_SSL_HEADER
 (e.g. ``HTTP_X_FORWARDED_PROTO,https``, only behind a proxy that overwrites the header),
 DJANGO_TRUSTED_PROXY_COUNT, DJANGO_STATIC_ROOT, DJANGO_EMAIL_HOST, DJANGO_EMAIL_PORT,
 DJANGO_EMAIL_HOST_USER, DJANGO_EMAIL_HOST_PASSWORD, DJANGO_EMAIL_USE_TLS,
-DJANGO_EMAIL_USE_SSL, DJANGO_DEFAULT_FROM_EMAIL, DJANGO_CONTACT_EMAIL, DJANGO_LOG_LEVEL.
+DJANGO_EMAIL_USE_SSL, DJANGO_DEFAULT_FROM_EMAIL, DJANGO_CONTACT_EMAIL, DJANGO_LOG_LEVEL,
+DJANGO_STAFF_SESSION_IDLE_SECONDS, DJANGO_STAFF_SESSION_MAX_SECONDS (docs/14).
 
 The cache (e-mail limits) lives in the database table ``django_cache``: run
 ``manage.py createcachetable`` once after ``migrate`` (README).
@@ -18,6 +21,7 @@ The cache (e-mail limits) lives in the database table ``django_cache``: run
 from django.core.exceptions import ImproperlyConfigured
 
 from config.env import (
+    admin_url_from_env,
     database_from_env,
     env_bool,
     env_int,
@@ -44,6 +48,21 @@ if not ALLOWED_HOSTS:
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
 DATABASES = {"default": database_from_env()}
+
+# --- Administration (docs/14) -------------------------------------------------------------
+ADMIN_URL = admin_url_from_env(production=True)
+
+if not env_bool("DJANGO_REQUIRE_2FA_FOR_STAFF", True):
+    raise ImproperlyConfigured(
+        "DJANGO_REQUIRE_2FA_FOR_STAFF=false is not allowed in production: every staff user "
+        "must use two-factor authentication."
+    )
+REQUIRE_2FA_FOR_STAFF = True
+
+STAFF_SESSION_IDLE_SECONDS = env_int("DJANGO_STAFF_SESSION_IDLE_SECONDS", 30 * 60)
+STAFF_SESSION_MAX_SECONDS = env_int("DJANGO_STAFF_SESSION_MAX_SECONDS", 12 * 60 * 60)
+if STAFF_SESSION_IDLE_SECONDS < 1 or STAFF_SESSION_MAX_SECONDS < 1:
+    raise ImproperlyConfigured("The staff session limits must be positive numbers of seconds.")
 
 # --- HTTPS and cookies --------------------------------------------------------------------
 SECURE_SSL_REDIRECT = True

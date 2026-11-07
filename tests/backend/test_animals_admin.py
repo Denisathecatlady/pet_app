@@ -15,7 +15,7 @@ from animals.models import (
     BodyMeasurement,
     HealthCondition,
 )
-from tests.backend.helpers import PASSWORD
+from tests.backend.helpers import PASSWORD, log_in_verified
 
 pytestmark = pytest.mark.django_db
 
@@ -24,7 +24,7 @@ MODELS = [Animal, BodyMeasurement, HealthCondition, AnimalHealthCondition, Anima
 
 @pytest.fixture
 def admin_client(client):
-    client.force_login(User.objects.create_superuser("admin@example.cz", PASSWORD))
+    log_in_verified(client, User.objects.create_superuser("admin@example.cz", PASSWORD))
     return client
 
 

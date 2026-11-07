@@ -17,7 +17,7 @@ from django.utils import timezone
 from accounts import services
 from accounts.models import User
 from core.privacy import DELETED_OBJECT_REPR
-from tests.backend.helpers import OTHER_PASSWORD, PASSWORD
+from tests.backend.helpers import OTHER_PASSWORD, PASSWORD, log_in_verified
 
 pytestmark = pytest.mark.django_db
 
@@ -133,7 +133,7 @@ def test_purge_deletes_only_old_unactivated_registrations(make_user, settings, c
 
 @pytest.fixture
 def admin_user(make_user):
-    return make_user("admin@example.cz", is_staff=True, is_superuser=True, roles=())
+    return make_user("admin@example.cz", is_superuser=True, roles=())
 
 
 def test_account_deletion_anonymises_the_admin_log(make_user, admin_user, make_animal):
@@ -158,7 +158,7 @@ def test_admin_deletion_runs_the_same_cleanup(client, make_user, admin_user):
     assert AccessLog.objects.filter(username=leaving.email).exists()
     assert AccessAttempt.objects.filter(username=leaving.email).exists()
 
-    client.force_login(admin_user)
+    log_in_verified(client, admin_user)
     url = reverse("admin:accounts_user_delete", args=[leaving.pk])
     assert client.post(url, {"post": "yes"}).status_code == 302
 

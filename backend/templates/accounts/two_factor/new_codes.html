@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Nové záložní kódy{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Nové záložní kódy</h1>
+  <div class="notice notice--warning" role="note">
+    <span class="notice__icon" aria-hidden="true">⚠</span>
+    <p>Dosavadní záložní kódy přestanou platit. Nové uvidíte jen jednou.</p>
+  </div>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% include "core/includes/form_fields.html" %}
+    <button type="submit" class="button">Vytvořit nové kódy</button>
+    <a class="button button--secondary" href="{% url 'accounts:two_factor' %}">Zrušit</a>
+  </form>
+</div>
+{% endblock %}

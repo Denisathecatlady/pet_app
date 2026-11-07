@@ -1,6 +1,6 @@
 """Local development settings. Never use them on a server."""
 
-from config.env import database_from_env, env_list
+from config.env import admin_url_from_env, database_from_env, env_bool, env_list
 
 from .base import *  # noqa: F403
 
@@ -21,3 +21,9 @@ LOCAL_DATABASE_DEFAULTS = {
 DATABASES = {"default": database_from_env(LOCAL_DATABASE_DEFAULTS)}
 
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+# Development may use another path of the administration (DJANGO_ADMIN_URL) and may switch the
+# mandatory second factor of staff off (DJANGO_REQUIRE_2FA_FOR_STAFF=false). Production
+# refuses both a missing admin path and a disabled second factor.
+ADMIN_URL = admin_url_from_env(production=False)
+REQUIRE_2FA_FOR_STAFF = env_bool("DJANGO_REQUIRE_2FA_FOR_STAFF", True)

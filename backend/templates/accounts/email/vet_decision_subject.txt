@@ -1,0 +1,1 @@
+{% if decision == "APPROVED" %}Role veterinárního lékaře byla přidělena{% elif decision == "REVOKED" %}Role veterinárního lékaře byla odebrána{% else %}Žádost o roli veterinárního lékaře byla zamítnuta{% endif %}

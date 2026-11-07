@@ -4,7 +4,7 @@ import pytest
 from django.urls import reverse
 
 from accounts.models import User
-from tests.backend.helpers import PASSWORD
+from tests.backend.helpers import PASSWORD, log_in_verified
 
 pytestmark = pytest.mark.django_db
 
@@ -12,7 +12,7 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture
 def admin_client(client):
     admin = User.objects.create_superuser("admin@example.cz", PASSWORD)
-    client.force_login(admin)
+    log_in_verified(client, admin)
     return client
 
 
@@ -41,32 +41,16 @@ def test_admin_user_search(admin_client, user):
     assert user.email in response.content.decode()
 
 
-def test_admin_creates_user_by_email(admin_client):
-    response = admin_client.post(
-        reverse("admin:accounts_user_add"),
-        {
-            "email": "Novy@Example.cz",
-            "usable_password": "true",
-            "password1": PASSWORD,
-            "password2": PASSWORD,
-        },
-    )
+def test_admin_creates_user_by_email_without_a_password(admin_client):
+    response = admin_client.post(reverse("admin:accounts_user_add"), {"email": "Novy@Example.cz"})
 
     assert response.status_code == 302
     created = User.objects.get(email="novy@example.cz")
-    assert created.check_password(PASSWORD)
+    assert not created.has_usable_password()  # the owner sets one with the reset link
 
 
 def test_admin_rejects_duplicate_email_in_other_case(admin_client, user):
-    response = admin_client.post(
-        reverse("admin:accounts_user_add"),
-        {
-            "email": user.email.upper(),
-            "usable_password": "true",
-            "password1": PASSWORD,
-            "password2": PASSWORD,
-        },
-    )
+    response = admin_client.post(reverse("admin:accounts_user_add"), {"email": user.email.upper()})
 
     assert response.status_code == 200
     assert User.objects.count() == 2  # admin + existing user

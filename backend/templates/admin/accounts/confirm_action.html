@@ -1,0 +1,52 @@
+{% extends "admin/base_site.html" %}
+{% load l10n admin_urls %}
+{% comment %}
+Intermediate page of an administration action (docs/14). The first POST of the action shows it;
+the form below posts the selected keys back with post=yes, which carries the action out (the
+same flow as Django's delete_selected_confirmation.html). Child templates fill action_summary
+(what will happen) and may add form fields in action_fields. Context: title, opts, selected,
+action_name, action_checkbox_name, cancel_url (the list as it was, with its filters), confirm_label,
+can_confirm, danger (a destructive action: the button is red), form. No script: cancelling is a link.
+{% endcomment %}
+{% block bodyclass %}{{ block.super }} app-{{ opts.app_label }} model-{{ opts.model_name }}{% endblock %}
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+<a href="{% url 'admin:index' %}">Domů</a>
+&rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+&rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+&rsaquo; {{ title }}
+</div>
+{% endblock %}
+{% block content %}
+<div class="barf-confirm">
+  {% block action_summary %}{% endblock %}
+  <form method="post">
+    {% csrf_token %}
+    <div>
+      {% for obj in selected %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ obj.pk|unlocalize }}">{% endfor %}
+      <input type="hidden" name="action" value="{{ action_name }}">
+      <input type="hidden" name="post" value="yes">
+      {% if form %}
+        <fieldset class="module aligned">
+          {% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
+          {% for field in form %}
+            <div class="form-row{% if field.errors %} errors{% endif %}">
+              {{ field.errors }}
+              <div>
+                {{ field.label_tag }}
+                {{ field }}
+                {% if field.help_text %}<div class="help"{% if field.auto_id %} id="{{ field.auto_id }}_helptext"{% endif %}>{{ field.help_text|safe }}</div>{% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </fieldset>
+      {% endif %}
+      {% block action_fields %}{% endblock %}
+      <div class="barf-actions">
+        {% if can_confirm %}<input type="submit" value="{{ confirm_label }}"{% if danger %} class="barf-danger"{% endif %}>{% endif %}
+        <a href="{{ cancel_url }}" class="button cancel-link">Zrušit</a>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

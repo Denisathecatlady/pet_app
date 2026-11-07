@@ -18,7 +18,7 @@ from animals.models import (
     HealthCondition,
     TargetWeightStatus,
 )
-from tests.backend.helpers import PASSWORD
+from tests.backend.helpers import PASSWORD, log_in_verified
 
 pytestmark = pytest.mark.django_db
 
@@ -108,9 +108,9 @@ def test_export_is_json_serialisable_without_custom_encoder(user, records):
 
 def test_export_names_an_administrator_only_by_role(client, user, records, make_user):
     """docs/12 §12.6: an admin's e-mail never reaches an owner's export."""
-    staff = make_user("internal-admin@firma.cz", is_staff=True, is_superuser=True, roles=())
+    staff = make_user("internal-admin@firma.cz", is_superuser=True, roles=())
     animal = records["animal"]
-    client.force_login(staff)
+    log_in_verified(client, staff)
     url = reverse("admin:animals_animal_change", args=[animal.pk])
     data = {
         "owner": user.pk,
@@ -286,17 +286,17 @@ def test_deletion_texts_do_not_overstate_what_is_deleted(client, user, vet_user)
     assert "zůstanou majitelům" not in text(reverse("accounts:profile"))
 
 
-def test_profile_explains_how_to_get_the_vet_role(client, user, vet_user, settings):
-    settings.CONTACT_EMAIL = "podpora@example.cz"
+def test_profile_points_to_the_page_where_the_vet_role_is_requested(client, user, vet_user):
     client.force_login(user)
     content = client.get(reverse("accounts:profile")).content.decode()
-    assert "Roli veterinárního lékaře přiděluje na žádost" in content
-    assert 'href="mailto:podpora@example.cz"' in content
+    assert "Roli veterinárního lékaře přiděluje správce aplikace po ověření" in " ".join(
+        content.split()
+    )
+    assert f'href="{reverse("accounts:vet_verification")}"' in content
     # Separate regions for security and data (landmark navigation).
     assert '<section aria-labelledby="security-title">' in content
     assert '<section aria-labelledby="data-title">' in content
     client.force_login(vet_user)
-    assert (
-        "Roli veterinárního lékaře přiděluje"
-        not in client.get(reverse("accounts:profile")).content.decode()
-    )
+    content = client.get(reverse("accounts:profile")).content.decode()
+    assert "Roli veterinárního lékaře přiděluje" not in content
+    assert f'href="{reverse("accounts:vet_verification")}"' in content  # the state of the role

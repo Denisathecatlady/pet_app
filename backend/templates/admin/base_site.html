@@ -1,0 +1,8 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% comment %}
+Same page as Django's, plus the stylesheet of the status badges and confirmation pages
+(static/css/admin.css). Extending the template of the same name is the documented way to
+override it without copying it.
+{% endcomment %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'css/admin.css' %}">{% endblock %}

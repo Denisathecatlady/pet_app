@@ -36,9 +36,10 @@ Role jsou skupiny Djanga (docs/07 §7.6), vytváří je migrace `accounts.0002_c
 | Role | Kdo ji přiděluje | Co v této iteraci umožňuje |
 |---|---|---|
 | `owner` (majitel zvířat) | registrace | Vlastní zvířata. Vlastnictví ale určuje vazba `Animal.owner`, ne skupina: zvíře může založit každý přihlášený uživatel a je pak jeho majitelem |
-| `vet` (veterinární lékař) | jen správce v administraci (README, *Role veterinárního lékaře*) | Majitel s ním může sdílet zvíře. Přístup ke sdílenému zvířeti trvá, jen dokud má účet tuto roli **a** sdílení je aktivní |
-| `data_curator`, `nutrition_reviewer` | správce | Zatím bez funkce (připraveno pro správu dat, docs/07 §7.6) |
-| správce (`is_staff`, `is_superuser`) | `createsuperuser` | Administrace `/admin/` včetně historie změn všech záznamů |
+| `vet` (veterinární lékař) | správce uživatelů nebo superuživatel po **schválení žádosti** podané na `/ucet/veterinar/` ([14](14-administrace.md) §14.11); superuživatel ji může přidat i ručně (README, *Role veterinárního lékaře*) | Majitel s ním může sdílet zvíře. Přístup ke sdílenému zvířeti trvá, jen dokud má účet tuto roli **a** sdílení je aktivní |
+| `support_admin` (správce uživatelů) | superuživatel | Administrace: uživatelé (jen účty, které nejsou správci: jméno, příjmení, aktivní účet, odkaz na obnovu hesla, opětovné odeslání aktivace, smazání neaktivovaných registrací), odemykání přihlášení, rozhodování o žádostech o roli veterináře a vyřizování žádostí subjektů údajů (export a výmaz účtu, jen účtů, které nejsou správci). Žádný přístup k zvířatům ([14](14-administrace.md) §14.3, §14.4, §14.11 až §14.14) |
+| `data_curator`, `nutrition_reviewer` | superuživatel | Administrace: kurátor spravuje knihovnu zdrojů, revizor čte zdroje a upravuje číselník zdravotních stavů ([14](14-administrace.md) §14.3) |
+| správce (`is_superuser`) | `createsuperuser` | Administrace (adresa z `DJANGO_ADMIN_URL`, ne `/admin/`) včetně historie změn všech záznamů a přidělování rolí. Do administrace smí jen účet s `is_staff`, který je **odvozený** z rolí ([14](14-administrace.md) §14.2), a s **dvoufázovým ověřením** ([14](14-administrace.md) §14.6) |
 
 ## 12.3 Matice oprávnění 🛠
 
@@ -69,7 +70,7 @@ Další pravidla:
   private, no-store`, middleware `NoStoreForSignedInUsersMiddleware`): po odhlášení na sdíleném
   počítači je nejde zobrazit tlačítkem Zpět.
 - Majitel, který je zároveň veterinářem, své zvíře sám potvrdit nemůže a nemůže ho sdílet sám se sebou.
-- Správce v administraci vidí a mění vše (§12.8).
+- Superuživatel v administraci vidí a mění vše; správce uživatelů nevidí zvířata, přístupy správců k údajům se zapisují ([14](14-administrace.md) §14.7; §12.8).
 
 Testy: `tests/backend/test_animals_permissions.py` (každý pohled × každá role × GET a POST,
 POST-only, CSRF).
@@ -219,8 +220,8 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
 
 | Funkce | Jak |
 |---|---|
-| Export (čl. 15 a 20) | *Můj účet → Stáhnout moje data (JSON)*. Oddíl `account`: profil, role, úspěšná přihlášení, počitadla neúspěšných pokusů o přihlášení (čas, IP adresa, prohlížeč; bez dat odeslaného formuláře) a případný protokol jednotlivých pokusů. Oddíl `animals`: vlastní zvířata se všemi měřeními, zdravotními stavy, sdíleními a historií změn každého záznamu; u veterináře seznam přijatých sdílení (jen UUID zvířete a data, bez údajů majitele). Jiní uživatelé se v exportu objeví jen takto: e-mail veterinárního lékaře, se kterým uživatel zvíře sdílel (sdílení, potvrzení cílové hmotnosti, autor měření nebo změny); kdokoli jiný (např. správce, který záznam upravil v administraci) jen rolí „správce aplikace“ nebo „jiný uživatel“, bez e-mailu. Oddíl `catalog`: zdroje, u kterých je uživatel zapsán jako ověřovatel, a změny zdrojů, které provedl v administraci ([15](15-zdroje-v-aplikaci.md) §15.8) |
-| Výmaz (čl. 17) | Smazání účtu smaže všechna zvířata uživatele, jejich měření, stavy, sdílení **i historii změn** (`cascade_delete_history`) a záznamy o přihlášení (`django-axes`). Smazání jednoho zvířete, měření nebo stavu maže i jeho historii. V protokolu administrace zůstane záznam o úpravě (kdo, kdy, která pole), ale text smazaného objektu (e-mail, jméno zvířete) se nahradí „[smazaný záznam]“. Úklid běží v signálu `post_delete`, tedy i při smazání účtu správcem v administraci a při mazání neaktivovaných registrací |
+| Export (čl. 15 a 20) | *Můj účet → Stáhnout moje data (JSON)*. Oddíl `account`: profil, role, úspěšná přihlášení, počitadla neúspěšných pokusů o přihlášení (čas, IP adresa, prohlížeč; bez dat odeslaného formuláře) a případný protokol jednotlivých pokusů. Oddíl `animals`: vlastní zvířata se všemi měřeními, zdravotními stavy, sdíleními a historií změn každého záznamu; u veterináře seznam přijatých sdílení (jen UUID zvířete a data, bez údajů majitele). Jiní uživatelé se v exportu objeví jen takto: e-mail veterinárního lékaře, se kterým uživatel zvíře sdílel (sdílení, potvrzení cílové hmotnosti, autor měření nebo změny); kdokoli jiný (např. správce, který záznam upravil v administraci) jen rolí „správce aplikace“ nebo „jiný uživatel“, bez e-mailu. Oddíl `catalog`: zdroje, u kterých je uživatel zapsán jako ověřovatel, a změny zdrojů, které provedl v administraci ([15](15-zdroje-v-aplikaci.md) §15.8). Oddíl `two_factor`: zda je dvoufázové ověření zapnuté, kdy bylo potvrzeno a kolik záložních kódů zbývá, **nikdy tajný klíč ani kódy** ([14](14-administrace.md) §14.6). Oddíl `vet_verification`: žádosti o roli veterináře (co uživatel zadal, stav, čas, odůvodnění; **ne** interní poznámka o ověření ani to, kdo rozhodl, [14](14-administrace.md) §14.11). Oddíl `data_subject_requests`: žádosti, které uživatel podal jako subjekt údajů (druh, dny, stav; ne poznámky správce, [14](14-administrace.md) §14.12). Správce stáhne týž soubor pro žádost subjektu údajů v administraci (§14.12) |
+| Výmaz (čl. 17) | Smazání účtu smaže všechna zvířata uživatele, jejich měření, stavy, sdílení **i historii změn** (`cascade_delete_history`), záznamy o přihlášení (`django-axes`) a zařízení dvoufázového ověření se záložními kódy. Smazání jednoho zvířete, měření nebo stavu maže i jeho historii. V protokolu administrace zůstane záznam o úpravě (kdo, kdy, která pole), ale text smazaného objektu (e-mail, jméno zvířete) se nahradí „[smazaný záznam]“. Smaže i žádosti o roli veterináře s historií. Úklid běží v signálu `post_delete`, tedy i při smazání účtu správcem v administraci, při výmazu z podnětu žádosti subjektu údajů (stejná funkce `services.delete_account`, [14](14-administrace.md) §14.12) a při mazání neaktivovaných registrací. Záznam o žádosti subjektu údajů výmaz účtu přečká bez odkazu na účet (jen pseudonym, dny, stav a automatická poznámka) |
 | Smazání účtu kurátora zdrojů | Zdroj, který kurátor ověřil, zůstane (je to veřejný odborný záznam); pole *ověřil* se vymaže i z historie změn zdroje a datum ověření zůstane ([15](15-zdroje-v-aplikaci.md) §15.3) |
 | Neaktivované registrace | Registraci lze založit na cizí e-mail; neaktivovaný účet smaže příkaz `purge_pending_accounts` po 7 dnech (`PENDING_ACCOUNT_RETENTION`, spouští se denně, README) |
 | Smazání účtu veterináře | Zaniknou sdílení, která dostal (i s historií). Jím zapsaná měření zůstanou majiteli, jen bez vazby na účet. Jím potvrzené cílové hmotnosti se vrátí na *orientační*. Stránka smazání účtu to veterináři předem vysvětlí |
@@ -231,15 +232,17 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
 
 - Kalkulačka denní dávky, recepty, suroviny, standardy, výpočet energie, nutriční rozbor, PDF
   (odloženo na žádost zadavatele; navazuje na M1 a M3, docs/10).
-- HTMX, REST API (docs/07 §7.8), 2FA pro role `vet`, `data_curator` a `nutrition_reviewer`
-  (docs/07 §7.7). Grafy hmotnosti a BCS už jsou (§12.11); chybí trendová upozornění, návrh úpravy
-  energie a graf MCS (§12.11).
+- HTMX, REST API (docs/07 §7.8). Dvoufázové ověření už je: povinné pro správce, dobrovolné pro
+  ostatní včetně veterinářů ([14](14-administrace.md) §14.6). Grafy hmotnosti a BCS už jsou
+  (§12.11); chybí trendová upozornění, návrh úpravy energie a graf MCS (§12.11).
 - E-mailové oznámení veterináři o novém sdílení, žádost veterináře o sdílení, převod zvířete na
   jiného majitele, více majitelů jednoho zvířete.
 - Úprava uloženého měření (jen smazání a nový zápis).
 - Pravidlo „rychlý úbytek hmotnosti“ (§12.5, §12.11) a jakákoli trendová upozornění.
-- Žádost o roli veterinárního lékaře v aplikaci: veterinář zatím píše na adresu správce
-  (`DJANGO_CONTACT_EMAIL`, patička a stránka *Můj účet*), správce roli přidělí v administraci.
+- Ověření veterináře proti registru: aplikace neověřuje sama. Žádost o roli se podává na
+  `/ucet/veterinar/`, správce ověří ručně a zapíše způsob ([14](14-administrace.md) §14.11).
+- Příjem žádosti subjektu údajů na stránce účtu (žádost zapisuje správce, [14](14-administrace.md)
+  §14.12).
 - Omezení počtu registrací z jedné adresy a celkový limit neúspěšných přihlášení z jedné IP
   adresy (§12.10).
 
@@ -252,11 +255,15 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
 3. Předání e-mailu a jména majitele veterináři při sdílení.
 4. Doba uchování záznamů o odvolaných sdíleních a historie změn (nyní do smazání zvířete nebo účtu)
    a záznamů o přihlášení (`django-axes`).
-5. Přístup správců k datům v administraci (rozsah, záznam o přístupu, smluvní zajištění).
+5. Přístup správců k datům v administraci (rozsah, záznam o přístupu, smluvní zajištění). Rozsah
+   po rolích a záznam přístupů jsou implementované pracovně ([14](14-administrace.md) §14.3 a
+   §14.7); právník je musí schválit (viz body 13 až 16).
 6. Záznamy o činnostech zpracování, zpracovatelé (hosting, e-mail), zálohy po výmazu
    (docs/07 §7.7: zálohy 30 dní a měsíční 12 měsíců). Podklady pro rozhodnutí
    (retence, obnova vrací smazané účty, záznam o výmazech): [13-nasazeni-a-provoz.md](13-nasazeni-a-provoz.md) §13.14.
-7. Ověření veterinárního lékaře: role `vet` se přiděluje ručně; jak správce ověří, že jde o lékaře.
+7. Ověření veterinárního lékaře: role `vet` se přiděluje po schválení žádosti ručně ověřujícím
+   správcem ([14](14-administrace.md) §14.11). Jak správce ověří, že jde o lékaře, jaké údaje smí
+   žádat, doba uchování žádosti a poznámky o ověření a odpovědnost provozovatele: viz body 17 až 22.
 8. Doba uchování neaktivovaných registrací (pracovně 7 dní, `PENDING_ACCOUNT_RETENTION`). Jde
    o údaje osoby, která registraci možná nezaložila.
 9. Export majitele obsahuje e-maily veterinářů, se kterými zvíře sdílel (sdílení, potvrzení,
@@ -269,6 +276,33 @@ Testy: `tests/backend/test_animals_attention.py` (každé pravidlo zvlášť, ko
     úspěšného přihlášení ze stejné adresy).
 12. Text o zálohách po výmazu v *Ochraně osobních údajů* a na stránce po smazání účtu (zástupné
     místo `[DOPLNÍ PRÁVNÍK]`) a kontakt na správce aplikace (`[DOPLNÍ PROVOZOVATEL]`).
+13. **Doba uchování záznamu přístupů do administrace** (`ADMIN_ACCESS_LOG_RETENTION_DAYS`, pracovně
+    365 dní), účel a právní základ a informování správců, že se jejich přístupy zaznamenávají
+    ([14](14-administrace.md) §14.7, §14.9 bod 1).
+14. E-mail správce a IP adresa v záznamu přístupů po smazání jeho účtu (zůstávají do vypršení
+    uchování): stačí to, nebo anonymizovat? Má export údajů správce obsahovat i jeho vlastní
+    řádky záznamu? ([14](14-administrace.md) §14.9 bod 2).
+15. Rozsah přístupu správců po rolích (matice [14](14-administrace.md) §14.3): zejména že správce
+    uživatelů vidí e-mail a jméno všech účtů a že superuživatel vidí všechna data včetně
+    zdravotních údajů zvířat; smluvní zajištění správců.
+16. Tajné klíče a záložní kódy dvoufázového ověření jsou v databázi a v zálohách v čitelné podobě
+    (`django-otp`): je to přijatelné? ([14](14-administrace.md) §14.6, §14.9 bod 5).
+17. **Žádost o roli veterináře:** které údaje smí aplikace žádat (pracoviště, evidenční číslo, zpráva),
+    právní základ, **doba uchování žádosti** (nyní do smazání účtu) a interní poznámky o způsobu
+    ověření, a zda je má žadatel při žádosti o přístup dostat (export je nyní neobsahuje)
+    ([14](14-administrace.md) §14.9 bod 6).
+18. **Lhůta pro vyřízení žádosti subjektu údajů:** nyní jeden měsíc od přijetí
+    (`DATA_SUBJECT_REQUEST_PERIOD_MONTHS`), prodloužení jen s odůvodněním v evidenci, žadatel se
+    o něm z aplikace nedozví ([14](14-administrace.md) §14.9 bod 7).
+19. **Ověření totožnosti žadatele** a obsah poznámky o něm; doba uchování záznamu o žádosti a to,
+    že po výmazu účtu zůstane (pseudonym, druh, dny, stav, poznámky) ([14](14-administrace.md)
+    §14.9 body 8 a 9).
+20. **Předání exportu žadateli** a otevírání souboru správcem; kdo smí exportovat a mazat účty
+    ([14](14-administrace.md) §14.9 body 10 a 11).
+21. **Obsah exportu:** žádosti o roli veterináře a žádosti subjektu údajů v něm jsou bez interních
+    poznámek ([14](14-administrace.md) §14.9 bod 12).
+22. Odemčení přihlášení a smazání neaktivované registrace správcem uživatelů bez ověření toho, kdo
+    o ně žádá ([14](14-administrace.md) §14.9 bod 13).
 
 ## 12.9 Body pro specialistu 🩺
 
