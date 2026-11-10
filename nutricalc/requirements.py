@@ -183,7 +183,9 @@ def requirement_sort_key(req: Requirement) -> tuple[str, str, int, Decimal, str,
     )
 
 
-def check_requirement_set(requirements: Iterable[Requirement]) -> tuple[Requirement, ...]:
+def check_requirement_set(
+    requirements: Iterable[Requirement], *, check_value_order: bool = True
+) -> tuple[Requirement, ...]:
     """Zkontroluje soubor požadavků a vrátí ho v deterministickém pořadí.
 
     Pravidla pro každou dvojici (živina, podmínka):
@@ -193,6 +195,12 @@ def check_requirement_set(requirements: Iterable[Requirement]) -> tuple[Requirem
         - minimum je menší než každé maximum a ``RATIO_MIN`` menší než
           ``RATIO_MAX`` (jako kontrola ``E_MIN_NOT_BELOW_MAX`` v ``refdata``).
     Všechny požadavky jedné živiny mají stejnou jednotku.
+
+    ``check_value_order=False`` vynechá porovnání hodnot (minimum < maximum,
+    ``RATIO_MIN`` < ``RATIO_MAX``). Používá se jen u požadavků, které už
+    prošly kontrolou v profilu a pak se přepočítaly na skutečný příjem
+    energie: přepočtené minimum smí maximum překročit (žádná dávka pak
+    nesplní oba požadavky) a jde o stav dat k posouzení, ne o chybu vstupu.
 
     Vstup: požadavky v libovolném pořadí.
     Výstup: n-tice seřazená podle :func:`requirement_sort_key`.
@@ -233,6 +241,8 @@ def check_requirement_set(requirements: Iterable[Requirement]) -> tuple[Requirem
                     f"Živina {where} má požadavek {req.requirement_type} vícekrát."
                 )
             seen.add(req.requirement_type)
+        if not check_value_order:
+            continue
         for low in minima:
             for high in (req for req in group if req.is_maximum):
                 if not low.value < high.value:
@@ -558,14 +568,47 @@ def select_requirements(
                     "potvrdit veterinární nutriční specialista.",
                 )
             )
+    scaled = scale_minima(used.requirements, factor)
+    if factor != 1:
+        crossed = sorted(_scaled_minimum_above_maximum(scaled))
+        if crossed:
+            flags.append(
+                Flag(
+                    WarningLevel.EXPERT_REQUIRED,
+                    "REQUIREMENT_SCALED_MIN_ABOVE_MAX",
+                    "Po přepočtu na skutečný příjem energie je minimum vyšší než nutriční maximum "
+                    f"nebo bezpečná horní mez u živin: {', '.join(crossed)}. Žádná dávka nemůže "
+                    "splnit obojí; dávku musí posoudit veterinární nutriční specialista.",
+                )
+            )
     return SelectedRequirements(
         profile_used=used,
         k_actual=k,
         min_scale_factor=factor,
         column_code=column_code(used),
-        requirements=scale_minima(used.requirements, factor),
+        requirements=scaled,
         flags=sorted_flags(flags),
     )
+
+
+def _scaled_minimum_above_maximum(requirements: Iterable[Requirement]) -> set[str]:
+    """Kódy živin, jejichž přepočtené minimum dosáhlo nutričního maxima nebo SUL.
+
+    ``LEGAL_MAX_EU`` se nepočítá: ve vyhodnocení je jen informativní."""
+    found: set[str] = set()
+    items = tuple(requirements)
+    for low in items:
+        if not low.is_minimum:
+            continue
+        for high in items:
+            if (
+                high.requirement_type in (RequirementType.NUTRITIONAL_MAX, RequirementType.SUL)
+                and high.nutrient_code == low.nutrient_code
+                and high.condition_note == low.condition_note
+                and low.value >= high.value
+            ):
+                found.add(low.nutrient_code)
+    return found
 
 
 def daily_requirement(req: Requirement, der_kcal: Decimal | int | str) -> Quantity:

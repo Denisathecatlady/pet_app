@@ -150,8 +150,9 @@ def test_golden_example_calcium_partial_not_evaluable() -> None:
     assert calcium.status == S.NOT_EVALUABLE
     assert calcium.evaluation is not None and calcium.evaluation.coverage_low_pct is None
     assert result.summary.status == SummaryStatus.INCOMPLETE
-    assert result.summary.not_evaluated == ("CA",)
-    assert (result.summary.evaluated_count, result.summary.required_count) == (2, 3)
+    # poměr Ca:P je v profilu a nelze ho vyhodnotit, počítá se tedy mezi neúplné (nález 7)
+    assert result.summary.not_evaluated == ("CA", "CA_P")
+    assert (result.summary.evaluated_count, result.summary.required_count) == (2, 4)
 
 
 def test_golden_example_ratio_not_evaluable() -> None:
@@ -178,9 +179,10 @@ def test_golden_example_below_lod_variant() -> None:
 
 def test_golden_example_summary_and_metadata() -> None:
     result = analyze()
-    assert result.summary.status == SummaryStatus.ALL_EVALUATED_MET
-    assert "TESTSTD 1 (pes, dospělý, udržovací potřeba)" in result.summary.message_cs
-    assert "neznamená, že dávka je bezpečná" in result.summary.message_cs
+    # Ca je jen částečný a poměr Ca:P nelze vyhodnotit: žádná zelená (docs/09 R1, nález 7)
+    assert result.summary.status == SummaryStatus.INCOMPLETE
+    assert result.summary.not_evaluated == ("CA_P",)
+    assert "CA_P" in result.summary.message_cs
     assert result.gate.status == GateStatus.OK
     assert result.engine_version == ENGINE_VERSION
     assert result.data_versions == analysis_input().data_versions
@@ -356,7 +358,9 @@ def test_partial_ration_energy_is_flagged() -> None:
     result = analyze(items=(item(no_nfe, "300"), item(syn_b(), "50")))
     assert result.me.completeness == Completeness.PARTIAL
     assert "ME_PARTIAL" in {flag.code for flag in result.flags}
-    assert result.nutrient("P").status == S.ADEQUATE
+    # přibližná ME je jen odhad jmenovatele: živiny na 1000 kcal se nevyhodnocují (nálezy 1 až 3)
+    assert result.nutrient("P").status == S.NOT_EVALUABLE
+    assert result.summary.status != SummaryStatus.ALL_EVALUATED_MET
 
 
 # --- bezpečnostní brána ------------------------------------------------------------------------------
@@ -404,7 +408,7 @@ def test_bcs_policy(bcs: int | None, gate_status: GateStatus) -> None:
         assert all(n.evaluation is None for n in result.nutrients)
     else:
         # EXPERT_REQUIRED: čísla se spočítají a vyhodnotí, rozhodnutí je na odborníkovi
-        assert result.summary.status == SummaryStatus.ALL_EVALUATED_MET
+        assert result.summary.status == SummaryStatus.INCOMPLETE  # Ca:P nelze vyhodnotit
         assert all(n.evaluation is not None for n in result.nutrients)
     if bcs is None:
         assert "BCS_MISSING" in {flag.code for flag in result.energy.flags}
@@ -530,7 +534,7 @@ def test_cat_without_taurine_data_is_never_met() -> None:
     result = analyze_recipe(cat_input(high_profile=high_profile, low_profile=low_profile))  # type: ignore[arg-type]
     assert result.nutrient("TAURINE").status == S.NOT_EVALUABLE
     assert result.summary.status == SummaryStatus.INCOMPLETE
-    assert result.summary.not_evaluated == ("TAURINE",)
+    assert result.summary.not_evaluated == ("CA_P", "TAURINE")
 
 
 def test_cat_analysis_uses_cat_columns() -> None:
@@ -737,4 +741,32 @@ def test_ratio_components_without_own_requirement_use_grams() -> None:
     assert all(n.status == S.NO_REFERENCE for n in result.nutrients)
     assert result.ratio().status == S.NOT_EVALUABLE  # Ca je PARTIAL
     # nic se nevyhodnotilo → nikdy „splněno“
+    assert result.summary.status == SummaryStatus.INCOMPLETE
+
+
+# --- nálezy 1 až 7 z revize (vysoká závažnost) --------------------------------------------------
+
+
+@pytest.mark.parametrize("k", ["60", "55", "40"])
+def test_low_energy_factor_never_raises_and_flags_scaled_minimum(k: str) -> None:
+    """Přepočtené minimum nad maximem je stav dat, ne chyba vstupu (nálezy 4 až 6)."""
+    result = analyze(energy_factor=dog_factor(k))
+    assert result.selected_column is not None
+    assert "REQUIREMENT_SCALED_MIN_ABOVE_MAX" in {flag.code for flag in result.flags}
+    assert result.summary.status != SummaryStatus.ALL_EVALUATED_MET
+
+
+def test_partial_me_never_gives_all_evaluated_met() -> None:
+    no_nfe = profile(
+        "SYN_A",
+        {
+            "PROTEIN": measured("20"),
+            "FAT": measured("10"),
+            "CRUDE_FIBRE": zero(),
+            "P": measured("0.2"),
+        },
+    )
+    result = analyze(items=(item(no_nfe, "300"),))
+    assert result.me.completeness == Completeness.PARTIAL
+    assert all(n.status == S.NOT_EVALUABLE for n in result.nutrients)
     assert result.summary.status == SummaryStatus.INCOMPLETE

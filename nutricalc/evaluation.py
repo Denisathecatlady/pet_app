@@ -255,7 +255,8 @@ def _applicable(
         raise TypeError("Požadavky musí být kolekce Requirement.")
     if not isinstance(condition_note, str):
         raise TypeError(f"condition_note musí být text, ne {type(condition_note).__name__}.")
-    checked = check_requirement_set(requirements)
+    # Hodnoty (minimum < maximum) hlídá profil; přepočtené minimum smí maximum překročit.
+    checked = check_requirement_set(requirements, check_value_order=False)
     for req in checked:
         if req.nutrient_code != nutrient_code:
             raise ValidationError(
