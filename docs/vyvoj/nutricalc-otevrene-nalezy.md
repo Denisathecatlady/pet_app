@@ -8,7 +8,13 @@ Rozpracované, neověřené a neúplné opravy jsou uložené jako patch
 [`nutricalc-neuplne-opravy.patch`](nutricalc-neuplne-opravy.patch) (po jeho aplikaci testy neprocházejí).
 Kód v repozitáři odpovídá stavu, kdy prochází všech 1276 testů.
 
-Počet nálezů: 43 (high 7, medium 14, low 22). Texty nálezů jsou v angličtině, jak je vrátili revizoři.
+Počet nálezů: 43 (high 7, medium 14, low 22).
+
+> **Stav oprav (listopad 2026):** všech 7 nálezů s vysokou závažností (č. 1 až 7) je opraveno, nálezy
+> č. 40 (shodný s č. 7) také. Přibližná ME (chybí BNLV nebo vláknina) už živiny nevyhodnocuje
+> (`NOT_EVALUABLE`), přepočtené minimum nad maximem už nehodí výjimku, ale přidá upozornění
+> `REQUIREMENT_SCALED_MIN_ABOVE_MAX` (EXPERT_REQUIRED), a požadavek profilu, který nelze vyhodnotit
+> (např. Ca:P), brání zelenému souhrnu. Střední a nízké nálezy (č. 8 až 39 a 41 až 43) zůstávají otevřené. Texty nálezů jsou v angličtině, jak je vrátili revizoři.
 
 ## 1. [high] PARTIAL ration ME (missing NFE or fibre counted as 0) gives COMPLETE per-1000 values and can produce ALL_EVALUATED_MET
 

@@ -340,7 +340,8 @@ def _me_flags(me: MeResult, usable: bool) -> list[Flag]:
                 WarningLevel.NUTRITION_WARNING,
                 "ME_PARTIAL",
                 "ME dávky je jen přibližná (chybějící BNLV nebo vláknina se počítaly jako 0), "
-                "proto je přibližný i obsah živin na 1000 kcal.",
+                "proto je obsah živin na 1000 kcal jen orientační a živiny jsou „nelze "
+                "vyhodnotit“.",
             )
         ]
     return []
@@ -395,6 +396,9 @@ def analyze_recipe(inp: AnalysisInput) -> AnalysisResult:
     )
     me = ration_me(inp.items, inp.me_method, animal.species)
     usable_kcal = me.kcal if me.kcal is not None and me.kcal > 0 else None
+    # Přibližná ME (chybějící BNLV nebo vláknina se počítaly jako 0) je jen odhad jmenovatele:
+    # obsah na 1000 kcal se ukáže, ale nevyhodnocuje se (chybějící údaj nelze nahradit nulou).
+    me_exact = me.completeness == Completeness.COMPLETE
     units, needs_ratio = _nutrient_units(inp)
     totals = {code: sum_nutrient(inp.items, code, units[code]) for code in sorted(units)}
 
@@ -412,7 +416,7 @@ def analyze_recipe(inp: AnalysisInput) -> AnalysisResult:
         if selected is not None:
             evaluation = (
                 evaluate_nutrient(interval, used)
-                if interval is not None
+                if interval is not None and me_exact
                 else no_data_evaluation(code, used)
             )
             if notes:
@@ -493,10 +497,15 @@ def analyze_recipe(inp: AnalysisInput) -> AnalysisResult:
             result.nutrient_code: tuple(req.requirement_type for req in result.requirements)
             for result in nutrients
         }
+        # Požadavek profilu, který nelze vyhodnotit (typicky poměr Ca:P při neúplném Ca),
+        # se počítá mezi povinné: souhrn pak nikdy není zelený (docs/09 R1).
+        unverifiable = {
+            code for code, status in primary.items() if status == NutrientStatus.NOT_EVALUABLE
+        }
         summary = summarize(
             gate.status,
             primary,
-            selected.profile_used.mandatory_nutrients,
+            selected.profile_used.mandatory_nutrients | unverifiable,
             maxima,
             standard_label=profile_label(selected.profile_used),
         )
